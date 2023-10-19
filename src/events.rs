@@ -10,7 +10,7 @@ use std::{
 
 use bevy::{
   ecs::event::{
-    ManualEventIterator,
+    EventIterator,
     ManualEventReader,
   },
   prelude::*,
@@ -91,7 +91,7 @@ impl<E: Event> EntityReader<E> {
     &'a mut self,
     entity: Entity,
     events: &'b EntityEvents<E>,
-  ) -> ManualEventIterator<'c, E>
+  ) -> EventIterator<'c, E>
   where
     'a: 'c,
     'b: 'c,
@@ -101,7 +101,7 @@ impl<E: Event> EntityReader<E> {
       .entry(entity)
       .or_insert_with(|| (0, events.get_reader()));
     *ctr = 2;
-    reader.iter(events)
+    reader.read(events)
   }
 
   /// Drive the cleanup routine.

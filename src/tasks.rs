@@ -53,6 +53,7 @@ impl<T> Future for Task<T> {
 }
 
 impl<T> Task<T> {
+  #[allow(dead_code)]
   pub fn check(&mut self) -> Option<Result<T, Error>> {
     check_task(self)
   }

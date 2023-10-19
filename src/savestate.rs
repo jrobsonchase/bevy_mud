@@ -286,6 +286,7 @@ impl<'w, 's> SaveDb<'w, 's> {
   }
 }
 
+#[allow(dead_code)]
 #[allow(clippy::type_complexity)]
 fn save_all(mut db: SaveDb, query: Query<Entity, With<Persist>>, children: Query<&Children>) {
   if query.is_empty() {
@@ -442,6 +443,7 @@ fn serialize_components<'a>(
     .collect()
 }
 
+#[allow(dead_code)]
 fn serialize_entity<'a>(
   type_registry: &TypeRegistry,
   entity: &'a DynamicEntity,
@@ -522,14 +524,12 @@ where
       // Make sure the entity exists and that the existing state is cleared.
       sqlx::query!(
         r#"
-          insert or replace into entity (id, parent) values (?, ?);
-          delete from entity_component where entity = ?;
-          delete from entity where parent = ?;
+          delete from entity where id = ?;
+          insert into entity (id, parent) values (?, ?);
         "#,
         id,
-        parent_id,
         id,
-        id
+        parent_id,
       )
       .execute(&mut *conn)
       .await?;
@@ -566,6 +566,7 @@ where
   Ok(Entity::from_bits(entity_id as u64))
 }
 
+#[allow(dead_code)]
 async fn delete_entity<D>(db: D, entity: Entity) -> Result<(), sqlx::Error>
 where
   D: for<'a> sqlx::Acquire<'a, Database = Sqlite>,
