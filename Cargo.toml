@@ -1,0 +1,43 @@
+[package]
+name = "canton"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+bevy = { git = "https://github.com/bevyengine/bevy", features = [
+	"dynamic_linking",
+	"bevy_asset",
+	"trace",
+	"bevy_scene",
+], default-features = false }
+clap = { version = "4.4.6", features = ["derive"] }
+futures = "0.3.28"
+sqlx = { version = "*", features = [
+	"runtime-tokio",
+	"tls-rustls",
+	"sqlite",
+	"chrono",
+] }
+tellem = "0.2.0"
+tokio = { version = "1.32.0", features = [
+	"macros",
+	"rt-multi-thread",
+	"net",
+	"io-util",
+	"tokio-macros",
+	"tracing",
+] }
+tokio-util = { version = "0.7.9", features = ["codec"] }
+tracing = { version = "0.1.37", features = ["async-await"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+hexer = { path = "../hexer" }
+bytes = "1.5.0"
+bcrypt = "0.15.0"
+tokio-stream = "0.1.14"
+signal-hook = "0.3.17"
+libc = "0.2.149"
+serde = "1.0.189"
+ron = "0.8.1"
