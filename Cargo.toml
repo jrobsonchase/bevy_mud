@@ -42,3 +42,10 @@ serde = "1.0.189"
 ron = "0.8.1"
 ratatui = { version = "0.24.0", default-features = false }
 ansi_term = "0.12.1"
+bevy_mod_scripting = { version = "0.3.0", features = [
+	"teal",
+	"bevy_mod_scripting_lua",
+	"unsafe_lua_modules",
+	"mlua_async",
+	"luajit",
+], git = "https://github.com/makspll/bevy_mod_scripting" }

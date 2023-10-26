@@ -5,17 +5,10 @@ mod macros;
 mod net;
 
 mod account;
-mod character;
 
-mod help;
-
-mod buffer;
-mod callback;
-mod command;
-mod components;
 mod coords;
+mod core;
 mod db;
-mod events;
 mod framerate;
 mod oneshot;
 mod savestate;
@@ -24,22 +17,10 @@ mod tasks;
 
 mod ascii_map;
 
-use std::{
-  fmt::Debug,
-  time::Duration,
-};
+use std::fmt::Debug;
 
-use bevy::{
-  app::{
-    AppExit,
-    ScheduleRunnerPlugin,
-  },
-  prelude::*,
-};
+use bevy::prelude::*;
 use clap::Parser;
-use net::TelnetPlugin;
-use signal::Signal;
-use tasks::*;
 use tracing::info;
 use tracing_subscriber::{
   fmt::{self,},
@@ -52,19 +33,13 @@ use crate::{
     AccountPlugin,
     StartLogin,
   },
-  character::CharacterPlugin,
-  command::parse_commands_system,
+  core::CorePlugin,
   db::DbArg,
-  help::HelpPlugin,
   net::{
     PortArg,
     *,
   },
-  savestate::{
-    SaveExt,
-    SaveStatePlugin,
-  },
-  signal::SignalPlugin,
+  savestate::SaveExt,
 };
 
 #[derive(Parser, Debug)]
@@ -99,30 +74,15 @@ fn main() -> anyhow::Result<()> {
 
   let mut app = App::new();
 
-  app.add_plugins(
-    MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-      1.0 / 60.0,
-    ))),
-  );
+  app.add_plugins(CorePlugin);
 
   app.add_plugins(args);
 
-  app.add_plugins(SignalPlugin);
-  app.add_plugins(framerate::LogFrameRatePlugin::<10>);
-  app.add_plugins(callback::CallbackPlugin);
-  app.add_plugins((TokioPlugin, db::DbPlugin, TelnetPlugin));
-  app.add_systems(Update, signal_handler);
-
-  app.add_plugins(SaveStatePlugin);
   app.persist_component::<crate::Name>();
-  app.persist_component::<Parent>();
   app.add_plugins(AccountPlugin);
-  app.add_plugins(HelpPlugin);
-  app.add_plugins(CharacterPlugin);
 
   app.add_systems(Update, telnet_handler);
   app.add_systems(Update, greeter);
-  app.add_systems(PreUpdate, parse_commands_system);
 
   app.run();
 
@@ -151,15 +111,5 @@ fn telnet_handler(_cmd: Commands, mut query: Query<&mut TelnetIn>) {
     while let Some(event) = input.next_telnet() {
       debug!(?event, "ignoring telnet event");
     }
-  }
-}
-
-fn signal_handler(mut signal: EventReader<Signal>, mut exit: EventWriter<AppExit>) {
-  match try_opt!(signal.iter().next().cloned(), return) {
-    signal @ Signal::SIGINT | signal @ Signal::SIGTERM | signal @ Signal::SIGQUIT => {
-      debug!(?signal, "received signal, exiting");
-      exit.send(AppExit);
-    }
-    _ => {}
   }
 }

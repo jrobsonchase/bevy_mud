@@ -10,10 +10,7 @@ use bevy::{
 };
 
 use crate::{
-  character::CharacterCommands,
-  command::CommandQueue,
   db::Db,
-  help::HelpListener,
   net::*,
   tasks::*,
 };
@@ -131,12 +128,10 @@ fn login_system(
             let output = world.entity(entity).get::<TelnetOut>().unwrap().clone();
             if success {
               output.line("\nSuccess!");
-              world.entity_mut(entity).remove::<LoginState>().insert((
-                Player { username, id },
-                CommandQueue::default(),
-                HelpListener::default(),
-                CharacterCommands,
-              ));
+              world
+                .entity_mut(entity)
+                .remove::<LoginState>()
+                .insert(Player { username, id });
             } else {
               output.line("\nInvalid password.");
               world.entity_mut(entity).insert(LoginState::Start);
