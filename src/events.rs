@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use bevy::{
   ecs::event::{
-    EventIterator,
+    ManualEventIterator,
     ManualEventReader,
   },
   prelude::*,
@@ -71,7 +71,7 @@ impl<E: Event> EntityReader<E> {
     &'a mut self,
     entity: Entity,
     events: &'b EntityEvents<E>,
-  ) -> EventIterator<'c, E>
+  ) -> ManualEventIterator<'c, E>
   where
     'a: 'c,
     'b: 'c,
@@ -81,7 +81,7 @@ impl<E: Event> EntityReader<E> {
       .entry(entity)
       .or_insert_with(|| (0, events.get_reader()));
     *ctr = 2;
-    reader.read(events)
+    reader.iter(events)
   }
 
   /// Drive the cleanup routine.

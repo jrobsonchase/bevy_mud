@@ -66,7 +66,7 @@ impl CommandQueue {
 
 pub fn parse_commands_system(mut query: Query<(Entity, &mut CommandQueue, &mut TelnetIn)>) {
   query
-    .par_iter_mut()
+    .iter_mut()
     .for_each(|(entity, mut output, mut input)| {
       while let Some(line) = input.next_line() {
         let parsed = parse_command(&line);

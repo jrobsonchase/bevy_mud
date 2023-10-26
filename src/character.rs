@@ -17,7 +17,7 @@ fn setup_character_system(mut files: ResMut<PrivateHelp>) {
 }
 
 fn character_commands_added(mut query: Query<&mut HelpListener, Added<CharacterCommands>>) {
-  query.par_iter_mut().for_each(|mut h| {
+  query.iter_mut().for_each(|mut h| {
     h.private_access.insert("delete".into());
     h.private_access.insert("create".into());
     h.private_access.insert("character".into());
@@ -28,7 +28,7 @@ fn character_commands_removed(
   mut query: Query<&mut HelpListener>,
   mut removed: RemovedComponents<CharacterCommands>,
 ) {
-  for entity in removed.read() {
+  for entity in removed.iter() {
     if let Ok(mut h) = query.get_mut(entity) {
       h.private_access.remove("delete");
       h.private_access.remove("create");

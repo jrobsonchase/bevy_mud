@@ -27,7 +27,7 @@ pub fn help_system(
   private_files: Res<PrivateHelp>,
   mut query: Query<(&HelpListener, &mut CommandQueue, &TelnetOut)>,
 ) {
-  query.par_iter_mut().for_each(|(listener, mut cmds, out)| {
+  query.iter_mut().for_each(|(listener, mut cmds, out)| {
     if let Some("help") = cmds.first_command() {
       let args = cmds.dequeue().unwrap();
       let key = args[1..].join(" ");

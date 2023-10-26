@@ -155,7 +155,7 @@ fn telnet_handler(_cmd: Commands, mut query: Query<&mut TelnetIn>) {
 }
 
 fn signal_handler(mut signal: EventReader<Signal>, mut exit: EventWriter<AppExit>) {
-  match try_opt!(signal.read().next().cloned(), return) {
+  match try_opt!(signal.iter().next().cloned(), return) {
     signal @ Signal::SIGINT | signal @ Signal::SIGTERM | signal @ Signal::SIGQUIT => {
       debug!(?signal, "received signal, exiting");
       exit.send(AppExit);

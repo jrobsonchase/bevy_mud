@@ -1,9 +1,6 @@
 use std::{
   any::TypeId,
-  borrow::{
-    Borrow,
-    Cow,
-  },
+  borrow::Cow,
   fmt::Write,
   iter,
   sync::{
@@ -15,7 +12,10 @@ use std::{
 };
 
 use bevy::{
-  ecs::system::SystemParam,
+  ecs::{
+    entity::EntityMap,
+    system::SystemParam,
+  },
   prelude::*,
   reflect::{
     serde::{
@@ -208,7 +208,7 @@ impl SaveDbOwned {
     };
     for entity in to_load {
       let components = fetch_entity(&mut conn, entity).await?;
-      let entity = deserialize_entity(&self.type_registry.read(), entity, &components)?;
+      let entity = deserialize_entity(&self.type_registry, entity, &components)?;
       debug!(entity=?entity.entity, components=?entity.components, "fetched entity");
       scene.entities.push(entity);
     }
@@ -260,7 +260,7 @@ impl SaveDbOwned {
         read_map.db_entity(entity.entity)
       };
 
-      let components = serialize_components(&self.type_registry.read(), &components)?;
+      let components = serialize_components(&self.type_registry, &components)?;
 
       let result = store_entity(&mut tx, entity, parent, &components).await?;
 
@@ -333,7 +333,6 @@ fn load(
   db: SaveDb,
   rt: Res<TokioRuntime>,
   query: Query<(Entity, &DbEntity), With<Load>>,
-  _children: Query<&Children>,
 ) {
   if query.is_empty() {
     return;
@@ -398,18 +397,18 @@ impl SharedDbEntityMap {
 #[allow(dead_code)]
 #[derive(Resource, Default, Debug)]
 struct DbEntityMap {
-  world_to_db: HashMap<Entity, Entity>,
-  db_to_world: HashMap<Entity, Entity>,
+  world_to_db: EntityMap,
+  db_to_world: EntityMap,
 }
 
 #[allow(dead_code)]
 impl DbEntityMap {
-  fn db_entity(&self, world_entity: impl Borrow<Entity>) -> Option<Entity> {
-    self.world_to_db.get(world_entity.borrow()).copied()
+  fn db_entity(&self, world_entity: Entity) -> Option<Entity> {
+    self.world_to_db.get(world_entity)
   }
 
   fn world_entity(&self, db_entity: DbEntity) -> Option<Entity> {
-    self.db_to_world.get(&db_entity.0).copied()
+    self.db_to_world.get(db_entity.0)
   }
 
   fn add_db_mapping(&mut self, db_entity: DbEntity, world_entity: Entity) {
@@ -421,7 +420,7 @@ impl DbEntityMap {
   // mappings.
   fn update(&mut self) {
     self.db_to_world.iter().for_each(|(f, t)| {
-      self.world_to_db.insert(*t, *f);
+      self.world_to_db.insert(t, f);
     })
   }
 }
@@ -452,13 +451,13 @@ fn extract_entities(
   entities: impl Iterator<Item = Entity>,
   filter: SceneFilter,
 ) -> Vec<DynamicEntity> {
-  DynamicSceneBuilder::from_world(world)
+  let mut bld = DynamicSceneBuilder::from_world(world);
+  bld
     .with_filter(filter)
     .deny_all_resources()
     .extract_entities(entities)
-    .remove_empty_entities()
-    .build()
-    .entities
+    .remove_empty_entities();
+  bld.build().entities
 }
 
 #[allow(dead_code)]
@@ -474,11 +473,14 @@ fn serialize_component(
 ) -> Result<(Cow<'static, str>, String), ron::Error> {
   let name = component
     .get_represented_type_info()
-    .map(|info| info.type_path())
-    .expect("missing type info");
+    .map(|i| Cow::Borrowed(i.type_name()))
+    .unwrap_or_else(|| Cow::Owned(component.reflect_type_path().to_string()));
   Ok((
-    Cow::Borrowed(name),
-    serialize_ron(TypedReflectSerializer::new(component, type_registry))?,
+    name,
+    serialize_ron(TypedReflectSerializer::new(
+      component,
+      &type_registry.read(),
+    ))?,
   ))
 }
 
@@ -520,15 +522,16 @@ fn deserialize_component(
   name: &str,
   value: &str,
 ) -> Result<Box<dyn Reflect>, ron::Error> {
+  let type_registry = type_registry.read();
   let registration =
     type_registry
-      .get_with_type_path(name)
+      .get_with_name(name)
       .ok_or_else(|| ron::Error::NoSuchStructField {
         expected: &["a valid component"],
         found: name.to_string(),
         outer: None,
       })?;
-  let deserializer = TypedReflectDeserializer::new(registration, type_registry);
+  let deserializer = TypedReflectDeserializer::new(registration, &type_registry);
   let mut seed = ron::Deserializer::from_str(value)?;
   deserializer.deserialize(&mut seed)
 }
@@ -712,12 +715,12 @@ mod test {
       (32, &[("canton::savestate::test::MyComponent", "(16)")]),
     ]);
 
-    let entities = deserialize_entities(&registry.read(), &entities).expect("deserialize entities");
+    let entities = deserialize_entities(&registry, &entities).expect("deserialize entities");
 
     let mut world = World::new();
     world.insert_resource(registry.clone());
 
-    let mut mappings = HashMap::default();
+    let mut mappings = EntityMap::default();
 
     DynamicScene {
       entities,
@@ -731,7 +734,7 @@ mod test {
     println!(
       "entities: {:#?}",
       serialize_entities(
-        &registry.read(),
+        &registry,
         &extract_entities(&world, new_entities.into_iter(), filter)
       )
     );

@@ -54,7 +54,7 @@ fn run_callbacks(
   cmds: ParallelCommands,
   mut query: Query<(Entity, &mut Callback)>,
 ) {
-  query.par_iter_mut().for_each(|(entity, mut cb)| {
+  query.iter_mut().for_each(|(entity, mut cb)| {
     let Callback(task, err_cb) = &mut *cb;
     let task_result = try_opt!(check_task(task), return);
     let err_cb = err_cb.take().expect("Callback can only complete once");
@@ -156,10 +156,9 @@ impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
     E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
   {
-    self.add(move |mut entity_world: EntityWorldMut| {
-      let rt = entity_world.world().resource::<TokioRuntime>();
-      let frame = entity_world.world().resource::<FrameCount>().0;
-      let entity = entity_world.id();
+    self.add(move |entity: Entity, world: &mut World| {
+      let rt = world.resource::<TokioRuntime>();
+      let frame = world.resource::<FrameCount>().0;
       trace!(frame, "spawning async task");
       let task = rt.spawn(async move {
         let task_result = fut.await?;
@@ -169,7 +168,9 @@ impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
         }))
       });
       let err_cb = Box::new(on_err);
-      entity_world.insert(Callback(task, Some(err_cb)));
+      world
+        .entity_mut(entity)
+        .insert(Callback(task, Some(err_cb)));
     })
   }
 }
