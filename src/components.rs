@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use hexer::Cubic;
 
 #[derive(Component, Copy, Clone)]
-pub struct Position(Cubic);
+pub struct Position(crate::coords::Cubic);

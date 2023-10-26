@@ -15,10 +15,7 @@ use std::{
 };
 
 use bevy::{
-  ecs::system::{
-    CommandQueue,
-    SystemParam,
-  },
+  ecs::system::SystemParam,
   prelude::*,
   reflect::{
     serde::{
@@ -122,38 +119,60 @@ impl SaveExt for App {
 }
 
 #[derive(SystemParam)]
-pub struct SaveDb<'w, 's> {
-  db: Res<'w, Db>,
-  rt: Res<'w, TokioRuntime>,
-  type_registry: Res<'w, AppTypeRegistry>,
+pub struct EntityExtractor<'w> {
   persisted: Res<'w, PersistComponents>,
-  map: Res<'w, SharedDbEntityMap>,
   world: &'w World,
-  cmd: Commands<'w, 's>,
 }
 
-impl<'w, 's> SaveDb<'w, 's> {
-  fn find_parent(c: Box<dyn Reflect>) -> Either<Entity, Box<dyn Reflect>> {
-    if c.represents::<Parent>() {
-      Either::Left(
-        c.downcast::<DynamicTupleStruct>()
-          .unwrap()
-          .field(0)
-          .unwrap()
-          .downcast_ref::<Entity>()
-          .copied()
-          .unwrap(),
-      )
-    } else {
-      Either::Right(c)
+impl<'w> EntityExtractor<'w> {
+  fn extract_entities(&self, entities: impl Iterator<Item = Entity>) -> Vec<DynamicEntity> {
+    extract_entities(self.world, entities, self.persisted.filter())
+  }
+}
+
+#[derive(SystemParam)]
+pub struct SaveDb<'w> {
+  db: Res<'w, Db>,
+  type_registry: Res<'w, AppTypeRegistry>,
+  map: Res<'w, SharedDbEntityMap>,
+}
+
+pub struct SaveDbOwned {
+  db: Db,
+  type_registry: AppTypeRegistry,
+  map: SharedDbEntityMap,
+}
+
+impl<'w> SaveDb<'w> {
+  fn to_owned(&self) -> SaveDbOwned {
+    SaveDbOwned {
+      db: self.db.clone(),
+      type_registry: self.type_registry.clone(),
+      map: self.map.clone(),
     }
   }
-  pub fn load_entities(
-    &mut self,
-    entities: impl Iterator<Item = (Entity, DbEntity)>,
-  ) -> anyhow::Result<()> {
-    let _entered = self.rt.enter();
-    let mut conn = self.rt.block_on(self.db.acquire())?;
+}
+fn find_parent(c: Box<dyn Reflect>) -> Either<Entity, Box<dyn Reflect>> {
+  if c.represents::<Parent>() {
+    Either::Left(
+      c.downcast::<DynamicTupleStruct>()
+        .unwrap()
+        .field(0)
+        .unwrap()
+        .downcast_ref::<Entity>()
+        .copied()
+        .unwrap(),
+    )
+  } else {
+    Either::Right(c)
+  }
+}
+impl SaveDbOwned {
+  pub async fn load_entities(
+    self,
+    entities: Vec<(Entity, DbEntity)>,
+  ) -> anyhow::Result<DynamicScene> {
+    let mut conn = self.db.acquire().await?;
 
     let mut seen = HashSet::<Entity>::new();
     let mut to_load = vec![];
@@ -165,25 +184,22 @@ impl<'w, 's> SaveDb<'w, 's> {
       orig.push(entity);
 
       let db_id = db_entity.0.to_bits() as i64;
-      self.rt.block_on(async {
-        let mut results = sqlx::query! {
+      let mut results = sqlx::query! {
           "WITH RECURSIVE
-            desc(id) as (values(?) union select e.id from entity e, desc d where e.parent = d.id)
-          select id from entity where entity.id in desc",
+            children(id) as (values(?) union select e.id from entity e, children d where e.parent = d.id)
+          select id from entity where entity.id in children",
           db_id,
         }
         .fetch(&mut *conn);
-        while let Some(res) = results.try_next().await? {
-          let ent = Entity::from_bits(res.id as u64);
+      while let Some(res) = results.try_next().await? {
+        let ent = Entity::from_bits(res.id as u64);
 
-          if !seen.contains(&ent) {
-            debug!(?ent, "adding entity to load");
-            to_load.push(ent);
-            seen.insert(ent);
-          }
+        if !seen.contains(&ent) {
+          debug!(?ent, "adding entity to load");
+          to_load.push(ent);
+          seen.insert(ent);
         }
-        <Result<_, sqlx::Error>>::Ok(())
-      })?;
+      }
     }
 
     let mut scene = DynamicScene {
@@ -191,68 +207,43 @@ impl<'w, 's> SaveDb<'w, 's> {
       ..Default::default()
     };
     for entity in to_load {
-      let components = self.rt.block_on(fetch_entity(&mut conn, entity))?;
+      let components = fetch_entity(&mut conn, entity).await?;
       let entity = deserialize_entity(&self.type_registry.read(), entity, &components)?;
       debug!(entity=?entity.entity, components=?entity.components, "fetched entity");
       scene.entities.push(entity);
     }
 
-    self.cmd.add(move |world: &mut World| {
-      debug!("spawning fetched entities");
-      let shared = world.resource::<SharedDbEntityMap>().clone();
-      let mut map = shared.write();
-      if let Err(error) = scene.write_to_world(world, &mut map.db_to_world) {
-        warn!(?error, "failed to load entities");
-      }
-      for entity in orig {
-        world.entity_mut(entity).remove::<Load>();
-      }
-      map.update();
-    });
-    Ok(())
+    Ok(scene)
   }
-  pub fn delete_entities(
-    &mut self,
-    entities: impl Iterator<Item = (Entity, DbEntity)>,
-  ) -> anyhow::Result<()> {
-    let _entered = self.rt.enter();
-    let entities = entities.collect::<Vec<_>>();
+  pub async fn delete_entities(self, entities: Vec<(Entity, DbEntity)>) -> anyhow::Result<()> {
     if entities.is_empty() {
       return Ok(());
     }
-    let mut conn = self.rt.block_on(self.db.acquire())?;
     let mut query = "DELETE FROM entity WHERE id IN (".to_string();
     write!(&mut query, "{}", entities[0].1 .0.to_bits() as i64)?;
     for entity in &entities[1..] {
       write!(&mut query, ",{}", entity.1 .0.to_bits() as i64)?;
     }
     write!(&mut query, ")")?;
-    self.rt.block_on(sqlx::query(&query).execute(&mut *conn))?;
-    for entity in entities {
-      self.cmd.entity(entity.0).remove::<(DbEntity, Persist)>();
-    }
+    let mut conn = self.db.acquire().await?;
+    sqlx::query(&query).execute(&mut *conn).await?;
     Ok(())
   }
-  pub fn save_entities(&mut self, entities: impl Iterator<Item = Entity>) -> anyhow::Result<()> {
-    let _entered = self.rt.enter();
-    let entities = extract_entities(self.world, entities, self.persisted.filter());
-
-    let mut queue = CommandQueue::default();
-
-    let mut tmp_commands = Commands::new_from_entities(&mut queue, self.world.entities());
-
-    let pool = self.db.clone();
-    let mut tx = self.rt.block_on(pool.begin())?;
+  pub async fn save_entities(
+    self,
+    entities: Vec<DynamicEntity>,
+  ) -> anyhow::Result<HashMap<Entity, DbEntity>> {
+    let mut output = HashMap::new();
+    let mut tx = self.db.begin().await?;
     for entity in entities {
       debug!(entity = ?entity.entity, components = ?entity.components, "saving new entity");
-      let type_registry = self.type_registry.clone();
       let id = entity.entity;
 
       let mut parent = None;
       let components = entity
         .components
         .into_iter()
-        .filter_map(|c| match Self::find_parent(c) {
+        .filter_map(|c| match find_parent(c) {
           Either::Left(p) => {
             parent = Some(p);
             None
@@ -260,79 +251,134 @@ impl<'w, 's> SaveDb<'w, 's> {
           Either::Right(c) => Some(c),
         })
         .collect::<Vec<_>>();
-      let map = self.map.read();
-      debug!(?parent);
-      parent = parent.and_then(|p| map.db_entity(p));
-      debug!(?parent);
-      let entity = map.db_entity(entity.entity);
-      debug!(?entity);
-      drop(map);
-      let components = serialize_components(&type_registry.read(), &components)?;
 
-      let result = self
-        .rt
-        .block_on(store_entity(&mut tx, entity, parent, &components))?;
+      let entity = {
+        let read_map = self.map.read();
+        debug!(?parent);
+        parent = parent.and_then(|p| read_map.db_entity(p));
+        debug!(?parent);
+        read_map.db_entity(entity.entity)
+      };
+
+      let components = serialize_components(&self.type_registry.read(), &components)?;
+
+      let result = store_entity(&mut tx, entity, parent, &components).await?;
 
       let db_entity = DbEntity(result);
 
       self.map.write().add_db_mapping(db_entity, id);
-      tmp_commands.entity(id).insert(db_entity);
+      output.insert(id, db_entity);
     }
-    self.rt.block_on(tx.commit())?;
-    self.cmd.add(move |world: &mut World| {
-      queue.apply(world);
-    });
-    Ok(())
+    tx.commit().await?;
+    Ok(output)
   }
 }
 
 #[allow(dead_code)]
 #[allow(clippy::type_complexity)]
-fn save_all(mut db: SaveDb, query: Query<Entity, With<Persist>>, children: Query<&Children>) {
+fn save_all(
+  mut cmd: Commands,
+  extractor: EntityExtractor,
+  db: SaveDb,
+  rt: Res<TokioRuntime>,
+  query: Query<Entity, With<Persist>>,
+  children: Query<&Children>,
+) {
   if query.is_empty() {
     return;
   }
-  let _ = db.save_entities(
+  let entities = extractor.extract_entities(
     query
       .iter()
       .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
   );
+  let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
+    warn!(?error, "failed to save entities to db");
+    return;
+  });
+  for (entity, db_entity) in result {
+    cmd.entity(entity).insert(db_entity);
+  }
 }
 
 #[allow(clippy::type_complexity)]
 fn save(
-  mut db: SaveDb,
+  mut cmd: Commands,
+  extractor: EntityExtractor,
+  db: SaveDb,
+  rt: Res<TokioRuntime>,
   query: Query<Entity, Or<(With<Save>, (With<Persist>, Without<DbEntity>))>>,
   children: Query<&Children>,
 ) {
   if query.is_empty() {
     return;
   }
-  let _ = db.save_entities(
+  let entities = extractor.extract_entities(
     query
       .iter()
       .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
   );
+  let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
+    warn!(?error, "failed to save entities to db");
+    return;
+  });
+  for (entity, db_entity) in result {
+    cmd.entity(entity).insert(db_entity).remove::<Save>();
+  }
 }
 
 #[allow(clippy::type_complexity)]
 fn load(
-  mut db: SaveDb,
+  mut cmd: Commands,
+  db: SaveDb,
+  rt: Res<TokioRuntime>,
   query: Query<(Entity, &DbEntity), With<Load>>,
   _children: Query<&Children>,
 ) {
   if query.is_empty() {
     return;
   }
-  let _ = db.load_entities(query.iter().map(|(e, d)| (e, *d)));
+  let mut orig = vec![];
+  let mut entities = vec![];
+  for (entity, db_entity) in query.iter() {
+    entities.push((entity, *db_entity));
+    orig.push(entity);
+  }
+  let scene = try_res!(rt.block_on(db.to_owned().load_entities(entities)), error => {
+    warn!(?error, "failed to load entities");
+    return
+  });
+  let shared = db.map.clone();
+  cmd.add(move |world: &mut World| {
+    debug!("spawning fetched entities");
+    let mut map = shared.write();
+    if let Err(error) = scene.write_to_world(world, &mut map.db_to_world) {
+      warn!(?error, "failed to load entities");
+    }
+    map.update();
+    for entity in orig {
+      world.entity_mut(entity).remove::<Load>();
+    }
+  });
 }
 
 #[allow(clippy::type_complexity)]
-fn delete(mut db: SaveDb, query: Query<(Entity, &DbEntity), (With<Delete>, Without<Load>)>) {
+fn delete(
+  mut cmd: Commands,
+  db: SaveDb,
+  rt: Res<TokioRuntime>,
+  query: Query<(Entity, &DbEntity), (With<Delete>, Without<Load>)>,
+) {
   if query.is_empty() {
     return;
   }
-  let _ = db.delete_entities(query.iter().map(|(e, d)| (e, *d)));
+  try_res!(rt.block_on(db.to_owned().delete_entities(query.iter().map(|(e, d)| (e, *d)).collect())), error => {
+    warn!(?error, "failed to delete entities");
+    return;
+  });
+  for entity in query.iter() {
+    cmd.entity(entity.0).remove::<(DbEntity, Persist, Delete)>();
+  }
 }
 
 #[derive(Resource, Default, Debug, Clone)]
@@ -422,20 +468,24 @@ type SerializedComponents<'a> = HashMap<Cow<'a, str>, String>;
 // Entity -> Components
 type SerializedEntities<'a> = HashMap<Entity, SerializedComponents<'a>>;
 
-fn serialize_component<'a>(
+fn serialize_component(
   type_registry: &TypeRegistry,
-  component: &'a dyn Reflect,
-) -> Result<(Cow<'a, str>, String), ron::Error> {
+  component: &dyn Reflect,
+) -> Result<(Cow<'static, str>, String), ron::Error> {
+  let name = component
+    .get_represented_type_info()
+    .map(|info| info.type_path())
+    .expect("missing type info");
   Ok((
-    Cow::Borrowed(component.reflect_type_path()),
+    Cow::Borrowed(name),
     serialize_ron(TypedReflectSerializer::new(component, type_registry))?,
   ))
 }
 
-fn serialize_components<'a>(
+fn serialize_components(
   type_registry: &TypeRegistry,
-  components: &'a [Box<dyn Reflect>],
-) -> Result<SerializedComponents<'a>, ron::Error> {
+  components: &[Box<dyn Reflect>],
+) -> Result<SerializedComponents<'static>, ron::Error> {
   components
     .iter()
     .map(AsRef::as_ref)
@@ -444,18 +494,18 @@ fn serialize_components<'a>(
 }
 
 #[allow(dead_code)]
-fn serialize_entity<'a>(
+fn serialize_entity(
   type_registry: &TypeRegistry,
-  entity: &'a DynamicEntity,
-) -> Result<(Entity, SerializedComponents<'a>), ron::Error> {
+  entity: &DynamicEntity,
+) -> Result<(Entity, SerializedComponents<'static>), ron::Error> {
   serialize_components(type_registry, &entity.components).map(|c| (entity.entity, c))
 }
 
 #[allow(dead_code)]
-fn serialize_entities<'a>(
+fn serialize_entities(
   type_registry: &TypeRegistry,
-  entities: &'a [DynamicEntity],
-) -> Result<SerializedEntities<'a>, ron::Error> {
+  entities: &[DynamicEntity],
+) -> Result<SerializedEntities<'static>, ron::Error> {
   entities
     .iter()
     .map(|entity| {

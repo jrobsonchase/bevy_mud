@@ -204,7 +204,7 @@ impl TelnetIn {
   }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct TelnetOut {
   channel: UnboundedSender<tellem::Event>,
 }

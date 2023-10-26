@@ -1,0 +1,8 @@
+#event {SESSION CONNECTED}
+{
+	#line oneshot #action {^Account name:} {#send admin;};
+	#line oneshot #action {^Creating new account} {#send password;};
+	#line oneshot #action {^Password:} {#send password;};
+}
+
+#session canton 127.0.0.1 23840

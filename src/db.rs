@@ -1,8 +1,3 @@
-use std::ops::{
-  Deref,
-  DerefMut,
-};
-
 use bevy::{
   app::AppExit,
   prelude::*,
@@ -15,7 +10,7 @@ use sqlx::{
 
 use crate::tasks::TokioRuntime;
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 pub struct DbArg(pub String);
 
 pub struct DbPlugin;
@@ -26,22 +21,8 @@ impl Plugin for DbPlugin {
   }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone, Deref)]
 pub struct Db(Pool<Sqlite>);
-
-impl Deref for Db {
-  type Target = Pool<Sqlite>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl DerefMut for Db {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
 
 fn connect_db(
   arg: Res<DbArg>,

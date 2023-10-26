@@ -1,9 +1,6 @@
 use std::{
+  fmt::Debug,
   future::Future,
-  ops::{
-    Deref,
-    DerefMut,
-  },
   pin::Pin,
   task::{
     Context,
@@ -12,7 +9,14 @@ use std::{
 };
 
 use anyhow::Error;
-use bevy::prelude::*;
+use bevy::{
+  core::FrameCount,
+  ecs::system::{
+    Command,
+    EntityCommands,
+  },
+  prelude::*,
+};
 use futures::{
   executor::block_on,
   future::poll_immediate,
@@ -23,20 +27,55 @@ use tokio::task::JoinHandle;
 
 pub struct TokioPlugin;
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 pub struct TokioRuntime(tokio::runtime::Runtime);
 
-impl Deref for TokioRuntime {
-  type Target = tokio::runtime::Runtime;
-  fn deref(&self) -> &Self::Target {
-    &self.0
+struct BoxCommand(Box<dyn FnOnce(&mut World) + Send + 'static>);
+
+impl Command for BoxCommand {
+  fn apply(self, world: &mut World) {
+    (self.0)(world)
   }
 }
 
-impl DerefMut for TokioRuntime {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
+impl BoxCommand {
+  fn new<C: Command + Send + 'static>(value: C) -> Self {
+    BoxCommand(Box::new(|world| value.apply(world)))
   }
+}
+
+type ErrCb = Box<dyn FnOnce(Error, Entity, &mut World) + Send + Sync + 'static>;
+
+#[derive(Component)]
+pub struct Callback(Task<BoxCommand>, Option<ErrCb>);
+
+fn run_callbacks(
+  frame: Res<FrameCount>,
+  cmds: ParallelCommands,
+  mut query: Query<(Entity, &mut Callback)>,
+) {
+  query.par_iter_mut().for_each(|(entity, mut cb)| {
+    let Callback(task, err_cb) = &mut *cb;
+    let task_result = try_opt!(check_task(task), return);
+    let err_cb = err_cb.take().expect("Callback can only complete once");
+
+    let frame = frame.0;
+
+    cmds.command_scope(move |mut cmds| {
+      if let Some(mut entity_cmds) = cmds.get_entity(entity) {
+        entity_cmds.remove::<Callback>();
+        trace!(frame, ?entity, "running async task callback");
+        match task_result {
+          Ok(cb) => cmds.add(move |world: &mut World| (cb.0)(world)),
+          Err(error) => {
+            cmds.add(move |world: &mut World| err_cb(error, entity, world));
+          }
+        };
+      } else {
+        warn!(?entity, "entity despawned before callbacks could run");
+      }
+    });
+  })
 }
 
 pub struct Task<T> {
@@ -79,12 +118,17 @@ impl TokioRuntime {
 
 impl Plugin for TokioPlugin {
   fn build(&self, app: &mut App) {
-    app.insert_resource(TokioRuntime(
-      tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap(),
-    ));
+    app
+      .insert_resource(TokioRuntime(
+        tokio::runtime::Builder::new_multi_thread()
+          .enable_all()
+          .build()
+          .unwrap(),
+      ))
+      .add_systems(
+        PreUpdate,
+        run_callbacks.run_if(any_with_component::<Callback>()),
+      );
   }
 }
 
@@ -93,4 +137,39 @@ where
   F: Future<Output = T> + Unpin,
 {
   block_on(poll_immediate(fut))
+}
+
+pub trait EntityCommandsExt {
+  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  where
+    T: Debug + Send + 'static,
+    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
+    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static;
+}
+
+impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
+  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  where
+    T: Debug + Send + 'static,
+    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
+    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
+  {
+    self.add(move |mut entity_world: EntityWorldMut| {
+      let rt = entity_world.world().resource::<TokioRuntime>();
+      let frame = entity_world.world().resource::<FrameCount>().0;
+      let entity = entity_world.id();
+      trace!(frame, "spawning async task");
+      let task = rt.spawn(async move {
+        let task_result = fut.await?;
+        trace!(?task_result, ?entity, "async task completed");
+        Ok(BoxCommand::new(move |world: &mut World| {
+          cb(task_result, entity, world)
+        }))
+      });
+      let err_cb = Box::new(on_err);
+      entity_world.insert(Callback(task, Some(err_cb)));
+    })
+  }
 }

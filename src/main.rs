@@ -5,9 +5,15 @@ mod macros;
 mod net;
 
 mod account;
+mod character;
+
+mod help;
+
 mod buffer;
 mod callback;
+mod command;
 mod components;
+mod coords;
 mod db;
 mod events;
 mod framerate;
@@ -15,6 +21,8 @@ mod oneshot;
 mod savestate;
 mod signal;
 mod tasks;
+
+mod ascii_map;
 
 use std::{
   fmt::Debug,
@@ -44,7 +52,10 @@ use crate::{
     AccountPlugin,
     StartLogin,
   },
+  character::CharacterPlugin,
+  command::parse_commands_system,
   db::DbArg,
+  help::HelpPlugin,
   net::{
     PortArg,
     *,
@@ -106,9 +117,12 @@ fn main() -> anyhow::Result<()> {
   app.persist_component::<crate::Name>();
   app.persist_component::<Parent>();
   app.add_plugins(AccountPlugin);
+  app.add_plugins(HelpPlugin);
+  app.add_plugins(CharacterPlugin);
 
   app.add_systems(Update, telnet_handler);
   app.add_systems(Update, greeter);
+  app.add_systems(PreUpdate, parse_commands_system);
 
   app.run();
 

@@ -1,12 +1,6 @@
 #![allow(dead_code)]
 
-use std::{
-  fmt::Debug,
-  ops::{
-    Deref,
-    DerefMut,
-  },
-};
+use std::fmt::Debug;
 
 use bevy::{
   ecs::event::{
@@ -33,26 +27,12 @@ impl EntityEventsExt for App {
   }
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Deref, DerefMut)]
 pub struct EntityEvents<E: Event>(Events<E>);
 
 impl<E: Event> Default for EntityEvents<E> {
   fn default() -> Self {
     Self(Events::default())
-  }
-}
-
-impl<E: Event> Deref for EntityEvents<E> {
-  type Target = Events<E>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl<E: Event> DerefMut for EntityEvents<E> {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
   }
 }
 
@@ -87,7 +67,7 @@ impl<E: Event> Default for EntityReader<E> {
 
 impl<E: Event> EntityReader<E> {
   /// Iterate over the events for the given entity that haven't been seen by this reader.
-  pub fn iter<'a, 'b, 'c>(
+  pub fn read<'a, 'b, 'c>(
     &'a mut self,
     entity: Entity,
     events: &'b EntityEvents<E>,
@@ -135,7 +115,7 @@ pub fn debug_event<T: Event + Debug>(
 ) {
   reader.update();
   for (entity, events) in query.iter() {
-    for event in reader.iter(entity, events) {
+    for event in reader.read(entity, events) {
       debug!(?entity, ?event);
     }
   }

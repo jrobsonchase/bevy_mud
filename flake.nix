@@ -78,7 +78,8 @@
             clang
             lld
             fix-n-fmt
-            nodejs
+            tintin
+            gnumake
             # Wrap sqlite3 in a shell script that enables foreign keys by default.
             (symlinkJoin {
               name = "sqlite";

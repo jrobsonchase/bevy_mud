@@ -1,32 +1,29 @@
 CREATE TABLE user (
-	  id integer not null primary key
-	, name text not null unique
-	, email text
-	, password text not null
+	id integer not null primary key,
+	name text not null unique,
+	email text,
+	password text not null
+) strict;
+CREATE TABLE character (
+	id integer not null primary key,
+	user_id integer not null references user(id),
+	name text not null unique,
+	entity integer not null references entity(id)
 ) strict;
 CREATE TABLE entity (
-	  id integer not null primary key
-	, parent integer
-	, constraint fk_entity_parent
-	  foreign key (parent)
-	  references entity(id)
-	  on delete cascade
+	id integer not null primary key,
+	parent integer,
+	constraint fk_entity_parent foreign key (parent) references entity(id) on delete cascade
 ) strict;
 CREATE TABLE component (
-	  id integer not null primary key
-	, name text not null unique
+	id integer not null primary key,
+	name text not null unique
 ) strict;
 CREATE TABLE entity_component (
-	  entity integer not null
-	, component integer not null
-	, data text not null
-	, primary key (entity, component)
-	, constraint fk_ec_entity
-	  foreign key (entity)
-	  references entity(id)
-	  on delete cascade
-	, constraint fk_ec_component
-	  foreign key (component)
-	  references component(id)
-	  on delete cascade
+	entity integer not null,
+	component integer not null,
+	data text not null,
+	primary key (entity, component),
+	constraint fk_ec_entity foreign key (entity) references entity(id) on delete cascade,
+	constraint fk_ec_component foreign key (component) references component(id) on delete cascade
 ) strict;
