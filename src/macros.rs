@@ -19,7 +19,7 @@ macro_rules! extract {
 macro_rules! try_opt {
   ($opt:expr, $block:expr $(,)*) => {{
     #[allow(clippy::redundant_closure_call)]
-    let res = (move || $opt)();
+    let res = (|| $opt)();
     match res {
       Some(v) => v,
       None => $block,
