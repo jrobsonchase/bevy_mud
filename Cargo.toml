@@ -43,9 +43,12 @@ ron = "0.8.1"
 ratatui = { version = "0.24.0", default-features = false }
 ansi_term = "0.12.1"
 bevy_mod_scripting = { version = "0.3.0", features = [
-	"teal",
-	"bevy_mod_scripting_lua",
-	"unsafe_lua_modules",
-	"mlua_async",
 	"luajit",
+	"teal",
+	"lua_script_api",
 ], git = "https://github.com/makspll/bevy_mod_scripting" }
+bevy_mod_scripting_lua = { git = "https://github.com/makspll/bevy_mod_scripting", version = "0.3.0", features = [
+	"luajit",
+	"teal",
+] }
+ngrok = { version = "0.14.0-pre.8" }

@@ -17,7 +17,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, naersk, flake-utils, fenix }:
+  outputs = { self, nixpkgs, naersk, flake-utils, fenix, pkgs, ... }@inputs:
     let
       # If you have a workspace and your binary isn't at the root of the
       # repository, you may need to modify this path.
@@ -26,12 +26,33 @@
     in
     flake-utils.lib.eachDefaultSystem (system:
       let
+        lib = nixpkgs.lib;
+        tintin-patched = inputs.pkgs.legacyPackages.${system}.tintin;
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
             fenix.overlays.default
           ];
         };
+        tealr_doc_gen = pkgs.rustPlatform.buildRustPackage
+          rec {
+            pname = "tealr_doc_gen";
+            version = "697293c83bea080da5b0967eb15e34688ac69c92";
+
+            src = pkgs.fetchFromGitHub {
+              owner = "lenscas";
+              repo = pname;
+              rev = version;
+              hash = "sha256-n3+XCLiyWV27QFjehxNVu9q1UkUOyhsBpxvSfFCFwhg=";
+            };
+
+            cargoLock = {
+              lockFile = ./Cargo.lock.tealr_doc_gen;
+              outputHashes = {
+                "tealr-0.9.0-alpha4" = "sha256-5FJvbNEiR8s7ENDbFhi8C9Nstio7C8qUDtmOMx+Ixcg=";
+              };
+            };
+          };
         components = [
           "cargo"
           "rustc"
@@ -60,7 +81,7 @@
       rec {
         inherit defaultPackage;
 
-        packages = builtins.listToAttrs [{ inherit name; value = defaultPackage; }];
+        packages = builtins.listToAttrs [{ inherit name; value = defaultPackage; }] // { inherit tealr_doc_gen; };
 
         # Update the `program` to match your binary's name.
         defaultApp = {
@@ -78,8 +99,11 @@
             clang
             lld
             fix-n-fmt
-            tintin
+            tintin-patched
             gnumake
+            tealr_doc_gen
+            luajitPackages.tl
+            luajitPackages.lua
             # Wrap sqlite3 in a shell script that enables foreign keys by default.
             (symlinkJoin {
               name = "sqlite";

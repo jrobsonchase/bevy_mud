@@ -12,6 +12,7 @@ mod db;
 mod framerate;
 mod oneshot;
 mod savestate;
+mod scripting;
 mod signal;
 mod tasks;
 

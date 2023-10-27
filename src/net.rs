@@ -1,4 +1,5 @@
 use std::{
+  env,
   fmt::{
     Debug,
     Write,
@@ -15,13 +16,19 @@ use futures::{
   prelude::*,
   StreamExt,
 };
+use ngrok::prelude::{
+  ConnInfo,
+  TunnelBuilder,
+};
 use tellem::Event;
 use tokio::{
-  io::BufStream,
-  net::{
-    TcpListener,
-    TcpStream,
+  io::{
+    AsyncRead,
+    AsyncWrite,
+    BufStream,
   },
+  net::TcpListener,
+  runtime::Handle,
   sync::mpsc::{
     self,
     error::TryRecvError,
@@ -88,13 +95,65 @@ pub struct PortArg(pub u32);
 
 #[derive(Component, Debug)]
 struct NewConns {
-  channel: UnboundedReceiver<(TcpStream, SocketAddr)>,
+  channel: UnboundedReceiver<ClientBundle>,
 }
 
 #[derive(Component)]
 struct Listener {
   #[allow(dead_code)]
   port: u32,
+}
+
+fn start_ngrok(rt: &TokioRuntime, domain: &str) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
+  let mut l = rt.block_on(async move {
+    Ok::<_, anyhow::Error>(
+      ngrok::Session::builder()
+        .authtoken_from_env()
+        .connect()
+        .await?
+        .tls_endpoint()
+        .domain(domain)
+        .termination(Default::default(), Default::default())
+        .listen()
+        .await?,
+    )
+  })?;
+
+  info!(domain, "started ngrok tls listener");
+  let (new_tx, new_rx) = mpsc::unbounded_channel();
+
+  let h = rt.handle().clone();
+
+  rt.spawn(async move {
+    while let Some(Ok(conn)) = l.next().await {
+      let addr = conn.remote_addr();
+      if new_tx.send(handle_conn(&h, conn, addr)?).is_err() {
+        break;
+      }
+    }
+    Ok(())
+  });
+
+  Ok(new_rx)
+}
+
+fn start_tcp(rt: &TokioRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
+  let l = rt.block_on(TcpListener::bind(format!("0.0.0.0:{port}")))?;
+  info!(port, "started tcp listener");
+  let (new_tx, new_rx) = mpsc::unbounded_channel();
+
+  let h = rt.handle().clone();
+
+  rt.spawn(async move {
+    while let Ok((conn, addr)) = l.accept().await {
+      if new_tx.send(handle_conn(&h, conn, addr)?).is_err() {
+        break;
+      }
+    }
+    Ok(())
+  });
+
+  Ok(new_rx)
 }
 
 fn start_listener(
@@ -105,7 +164,7 @@ fn start_listener(
 ) {
   let port = arg.0;
 
-  let res = rt.block_on(TcpListener::bind(format!("0.0.0.0:{port}")));
+  let res = start_tcp(&rt, port);
   let l = match res {
     Ok(l) => l,
     Err(err) => {
@@ -114,18 +173,19 @@ fn start_listener(
       return;
     }
   };
-  info!(port, "started tcp listener");
-  let (new_tx, new_rx) = mpsc::unbounded_channel();
+  commands.spawn((Listener { port }, NewConns { channel: l }));
 
-  rt.spawn(async move {
-    while let Ok(conn) = l.accept().await {
-      if new_tx.send(conn).is_err() {
-        break;
+  if env::var("NGROK_AUTHTOKEN").is_ok() && env::var("NGROK_DOMAIN").is_ok() {
+    let res = start_ngrok(&rt, env::var("NGROK_DOMAIN").unwrap().as_str());
+    let l = match res {
+      Ok(l) => l,
+      Err(err) => {
+        warn!(?err, "failed to start ngrok listener.");
+        return;
       }
-    }
-    Ok(())
-  });
-  commands.spawn((Listener { port }, NewConns { channel: new_rx }));
+    };
+    commands.spawn(NewConns { channel: l });
+  }
 }
 
 #[derive(Component)]
@@ -293,14 +353,79 @@ struct ClientBundle {
   output: TelnetOut,
 }
 
+fn handle_conn<C>(rt: &Handle, conn: C, remote_addr: SocketAddr) -> anyhow::Result<ClientBundle>
+where
+  C: AsyncRead + AsyncWrite + Send + 'static,
+{
+  let (read_tx, read_rx) = mpsc::unbounded_channel();
+  let (write_tx, write_rx) = mpsc::unbounded_channel();
+
+  let bundle = ClientBundle {
+    conn: ClientConn { remote_addr },
+    input: TelnetIn::new(read_rx),
+    output: TelnetOut::new(write_tx.clone()),
+  };
+
+  let _span = info_span!("client", ?remote_addr).entered();
+
+  info!("got new connection");
+
+  let (twrite, tread) = tellem::Parser::default()
+    .framed(BufStream::new(conn))
+    .split();
+
+  rt.spawn(
+    async move {
+      let mut tread = tread;
+      let mut buffer = BytesMut::new();
+      'read: while let Some(res) = tread.next().await {
+        let event = match res {
+          Ok(Event::Data(data)) => {
+            buffer.extend_from_slice(&data);
+            while let Some(i) = buffer.iter().position(|b| *b == b'\n') {
+              let mut line = buffer.split_to(i + 1);
+              while let Some(b'\r' | b'\n') = line.last() {
+                line.truncate(line.len() - 1);
+              }
+              if read_tx.send(Event::Data(line)).is_err() {
+                break 'read;
+              }
+            }
+            continue;
+          }
+          Ok(event) => event,
+          Err(err) => {
+            debug!(?err, "error reading from client stream");
+            break;
+          }
+        };
+        if read_tx.send(event).is_err() {
+          break;
+        }
+      }
+      debug!("client read task exit");
+      Ok::<(), anyhow::Error>(())
+    }
+    .in_current_span(),
+  );
+  rt.spawn(
+    async move {
+      let mut twrite = twrite;
+      let write_rx = UnboundedReceiverStream::new(write_rx);
+      write_rx.map(Ok).forward(&mut twrite).await?;
+      twrite.flush().await?;
+      twrite.close().await?;
+      Ok::<(), anyhow::Error>(())
+    }
+    .in_current_span(),
+  );
+  Ok(bundle)
+}
+
 #[instrument(skip_all)]
-fn new_conns(
-  mut cmd: Commands,
-  rt: Res<TokioRuntime>,
-  mut query: Query<(Entity, &mut NewConns, Option<&Children>)>,
-) {
+fn new_conns(mut cmd: Commands, mut query: Query<(Entity, &mut NewConns, Option<&Children>)>) {
   for (listener_id, mut conns, children) in query.iter_mut() {
-    let (conn, remote_addr) = match conns.channel.try_recv() {
+    let bundle = match conns.channel.try_recv() {
       Ok(v) => v,
       Err(TryRecvError::Empty) => continue,
       Err(TryRecvError::Disconnected) => {
@@ -313,72 +438,9 @@ fn new_conns(
       }
     };
 
-    let (read_tx, read_rx) = mpsc::unbounded_channel();
-    let (write_tx, write_rx) = mpsc::unbounded_channel();
-
-    let bundle = ClientBundle {
-      conn: ClientConn { remote_addr },
-      input: TelnetIn::new(read_rx),
-      output: TelnetOut::new(write_tx.clone()),
-    };
-
     let entity_id = cmd.spawn(bundle).set_parent(listener_id).id();
 
     cmd.entity(listener_id).add_child(entity_id);
-
-    let _span = info_span!("client", ?entity_id, ?remote_addr).entered();
-
-    info!("got new connection");
-
-    let (twrite, tread) = tellem::Parser::default()
-      .framed(BufStream::new(conn))
-      .split();
-
-    rt.spawn(
-      async move {
-        let mut tread = tread;
-        let mut buffer = BytesMut::new();
-        'read: while let Some(res) = tread.next().await {
-          let event = match res {
-            Ok(Event::Data(data)) => {
-              buffer.extend_from_slice(&data);
-              while let Some(i) = buffer.iter().position(|b| *b == b'\n') {
-                let mut line = buffer.split_to(i + 1);
-                while let Some(b'\r' | b'\n') = line.last() {
-                  line.truncate(line.len() - 1);
-                }
-                if read_tx.send(Event::Data(line)).is_err() {
-                  break 'read;
-                }
-              }
-              continue;
-            }
-            Ok(event) => event,
-            Err(err) => {
-              debug!(?err, "error reading from client stream");
-              break;
-            }
-          };
-          if read_tx.send(event).is_err() {
-            break;
-          }
-        }
-        debug!("client read task exit");
-        Ok(())
-      }
-      .in_current_span(),
-    );
-    rt.spawn(
-      async move {
-        let mut twrite = twrite;
-        let write_rx = UnboundedReceiverStream::new(write_rx);
-        write_rx.map(Ok).forward(&mut twrite).await?;
-        twrite.flush().await?;
-        twrite.close().await?;
-        Ok(())
-      }
-      .in_current_span(),
-    );
   }
 }
 

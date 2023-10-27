@@ -8,16 +8,11 @@ use bevy::{
   asset::ChangeWatcher,
   prelude::*,
 };
-use bevy_mod_scripting::prelude::{
-  AddScriptHost,
-  AddScriptHostHandler,
-  LuaScriptHost,
-  ScriptingPlugin,
-};
 
 use crate::{
   net::TelnetPlugin,
   savestate::SaveStatePlugin,
+  scripting::ScriptingPlugin,
   signal::{
     Signal,
     SignalPlugin,
@@ -29,8 +24,6 @@ pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
   fn build(&self, app: &mut App) {
-    app.add_plugins(ScriptingPlugin);
-
     app.add_plugins(
       MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
         1.0 / 60.0,
@@ -42,8 +35,7 @@ impl Plugin for CorePlugin {
       ..Default::default()
     });
 
-    app.add_script_host::<LuaScriptHost<()>>(PostUpdate);
-    app.add_script_handler::<LuaScriptHost<()>, 0, 0>(PostUpdate);
+    app.add_plugins(ScriptingPlugin);
 
     app.add_plugins(SignalPlugin);
     app.add_plugins(crate::framerate::LogFrameRatePlugin::<10>);
