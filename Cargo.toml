@@ -13,6 +13,7 @@ bevy = { version = "0.11", features = [
 	"bevy_asset",
 	"bevy_scene",
 	"trace",
+	"filesystem_watcher",
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
