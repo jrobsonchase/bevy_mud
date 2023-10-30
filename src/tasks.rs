@@ -23,12 +23,22 @@ use futures::{
   ready,
   FutureExt,
 };
-use tokio::task::JoinHandle;
+use tokio::{
+  runtime::Handle,
+  task::JoinHandle,
+};
 
-pub struct TokioPlugin;
+#[derive(Default)]
+pub struct TokioPlugin(Option<Handle>);
+
+impl TokioPlugin {
+  pub fn new(handle: Option<Handle>) -> Self {
+    Self(handle)
+  }
+}
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct TokioRuntime(tokio::runtime::Runtime);
+pub struct TokioRuntime(Handle);
 
 struct BoxCommand(Box<dyn FnOnce(&mut World) + Send + 'static>);
 
@@ -105,6 +115,9 @@ impl TokioRuntime {
   {
     self.0.block_on(fut)
   }
+  pub fn handle(&self) -> Handle {
+    self.0.clone()
+  }
   pub fn spawn<F, T>(&self, fut: F) -> Task<T>
   where
     F: Future<Output = Result<T, Error>> + Send + 'static,
@@ -118,17 +131,18 @@ impl TokioRuntime {
 
 impl Plugin for TokioPlugin {
   fn build(&self, app: &mut App) {
-    app
-      .insert_resource(TokioRuntime(
-        tokio::runtime::Builder::new_multi_thread()
-          .enable_all()
-          .build()
-          .unwrap(),
-      ))
-      .add_systems(
-        PreUpdate,
-        run_callbacks.run_if(any_with_component::<Callback>()),
-      );
+    let handle = self.0.clone().unwrap_or_else(|| {
+      tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .handle()
+        .clone()
+    });
+    app.insert_resource(TokioRuntime(handle)).add_systems(
+      PreUpdate,
+      run_callbacks.run_if(any_with_component::<Callback>()),
+    );
   }
 }
 

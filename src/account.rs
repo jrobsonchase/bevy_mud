@@ -9,12 +9,11 @@ use bevy::{
   prelude::*,
 };
 use bevy_mod_scripting::prelude::{
-  LuaEvent,
   LuaFile,
-  PriorityEventWriter,
   Script,
   ScriptCollection,
 };
+use bevy_mod_scripting_lua::lua_path;
 
 use crate::{
   db::Db,
@@ -60,7 +59,6 @@ fn login_system(
   mut cmd: Commands,
   db: Res<Db>,
   mut query: Query<(Entity, &mut LoginState, &mut TelnetIn, &TelnetOut)>,
-  _events: PriorityEventWriter<LuaEvent<()>>,
 ) {
   for (entity, mut state, mut input, output) in query.iter_mut() {
     match &mut *state {
@@ -137,15 +135,16 @@ fn login_system(
             if success {
               output.line("\nSuccess!");
               let srv = world.resource::<AssetServer>();
-              let script = srv.load::<LuaFile, &str>("scripts/player.tl");
+              let path = lua_path!("player");
+              let script = srv.load::<LuaFile, &str>(path);
               let collection = ScriptCollection {
-                scripts: vec![Script::<LuaFile>::new("scripts/player.tl".into(), script)],
+                scripts: vec![Script::<LuaFile>::new(path.into(), script)],
               };
               world
                 .entity_mut(entity)
                 .remove::<LoginState>()
-                .insert(Player { username, id })
-                .insert(collection);
+                .insert(collection)
+                .insert(Player { username, id });
             } else {
               output.line("\nInvalid password.");
               world.entity_mut(entity).insert(LoginState::Start);

@@ -32,7 +32,7 @@ impl<const WINDOW: usize> Plugin for LogFrameRatePlugin<WINDOW> {
     t.update();
     app.insert_resource(Fps(0.0));
     app.insert_resource(AvgFps(0.0));
-    app.add_systems(Update, log_frame_rate::<WINDOW>);
+    app.add_systems(Last, log_frame_rate::<WINDOW>);
   }
 }
 
@@ -44,6 +44,7 @@ fn log_frame_rate<const WINDOW: usize>(
   mut inst_rate: ResMut<Fps>,
   mut avg_rate: ResMut<AvgFps>,
 ) {
+  info!(tracy.frame_mark = true);
   *frames += 1;
   stopwatch.tick(time.delta());
 

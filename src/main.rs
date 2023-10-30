@@ -1,46 +1,32 @@
-#[macro_use]
-mod macros;
-
-#[macro_use]
-mod net;
-
-mod account;
-
-mod coords;
-mod core;
-mod db;
-mod framerate;
-mod oneshot;
-mod savestate;
-mod scripting;
-mod signal;
-mod tasks;
-
-mod ascii_map;
-
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use clap::Parser;
-use tracing::info;
-use tracing_subscriber::{
-  fmt::{self,},
-  prelude::*,
-  EnvFilter,
-};
-
-use crate::{
+use canton::{
   account::{
     AccountPlugin,
     StartLogin,
   },
   core::CorePlugin,
   db::DbArg,
+  map::MapPlugin,
   net::{
     PortArg,
     *,
   },
-  savestate::SaveExt,
+};
+use clap::Parser;
+#[cfg(feature = "otel")]
+use opentelemetry_api::KeyValue;
+#[cfg(feature = "otel")]
+use opentelemetry_otlp::WithExportConfig;
+#[cfg(feature = "otel")]
+use opentelemetry_sdk::{
+  trace::{
+    self,
+    RandomIdGenerator,
+    Sampler,
+  },
+  Resource,
 };
 
 #[derive(Parser, Debug)]
@@ -51,6 +37,9 @@ struct Args {
 
   #[arg(short, long, default_value_t = 23840)]
   port: u32,
+
+  #[arg(long, default_value_t = false)]
+  otel: bool,
 }
 
 impl Plugin for Args {
@@ -61,26 +50,21 @@ impl Plugin for Args {
 }
 
 fn main() -> anyhow::Result<()> {
-  tracing_subscriber::registry()
-    .with(fmt::layer().pretty())
-    .with(
-      EnvFilter::builder()
-        .with_default_directive("canton=info".parse()?)
-        .from_env_lossy(),
-    )
-    .init();
-
   let args = Args::parse();
-  info!("Hello, args: {args:?}!");
+
+  let rt = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .unwrap();
 
   let mut app = App::new();
 
-  app.add_plugins(CorePlugin);
+  app.add_plugins(CorePlugin::with_runtime(rt.handle().clone()));
 
   app.add_plugins(args);
 
-  app.persist_component::<crate::Name>();
   app.add_plugins(AccountPlugin);
+  app.add_plugins(MapPlugin);
 
   app.add_systems(Update, telnet_handler);
   app.add_systems(Update, greeter);
@@ -89,16 +73,6 @@ fn main() -> anyhow::Result<()> {
 
   Ok(())
 }
-
-#[derive(Component, Reflect, Debug, Default)]
-#[reflect(Component)]
-struct Name(String);
-
-#[derive(Component)]
-struct Net(Entity);
-
-#[derive(Component)]
-struct Char(Entity);
 
 fn greeter(mut cmd: Commands, mut query: Query<(Entity, &TelnetOut), Added<ClientConn>>) {
   for (entity, output) in query.iter_mut() {

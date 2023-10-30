@@ -2,16 +2,17 @@
 name = "canton"
 version = "0.1.0"
 edition = "2021"
+default-run = "canton"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 
 [dependencies]
 anyhow = "1.0.75"
 bevy = { version = "0.11", features = [
-	"dynamic_linking",
 	"bevy_asset",
-	"trace",
 	"bevy_scene",
+	"trace",
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
@@ -52,3 +53,20 @@ bevy_mod_scripting_lua = { git = "https://github.com/makspll/bevy_mod_scripting"
 	"teal",
 ] }
 ngrok = { version = "0.14.0-pre.8" }
+tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
+tracing-error = "0.2.0"
+tracy-client = { version = "0.16.3", optional = true }
+
+[features]
+tracy_memory = ["tracy", "tracy-client"]
+tracy = ["tracing-tracy"]
+default = ["tracy"]
+
+# [patch.'https://github.com/makspll/bevy_mod_scripting']
+# bevy_mod_scripting = { path = "../../../github.com/makspll/bevy_mod_scripting" }
+# bevy_mod_scripting_lua = { path = "../../../github.com/makspll/bevy_mod_scripting/languages/bevy_mod_scripting_lua" }
+# bevy_mod_scripting_core = { path = "../../../github.com/makspll/bevy_mod_scripting/bevy_mod_scripting_core" }
+# bevy_script_api = { path = "../../../github.com/makspll/bevy_mod_scripting/bevy_script_api" }
+
+# [patch.crates-io]
+# tracy-client = { path = "../../../github.com/nagisa/rust_tracy_client/tracy-client" }

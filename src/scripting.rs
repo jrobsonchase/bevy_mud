@@ -5,7 +5,14 @@ use bevy_mod_scripting::prelude::*;
 
 use self::log::LogAPIProvider;
 
-pub struct ScriptingPlugin;
+#[derive(Default)]
+pub struct ScriptingPlugin(bool);
+
+impl ScriptingPlugin {
+  pub fn gen_docs(docs: bool) -> Self {
+    ScriptingPlugin(docs)
+  }
+}
 
 impl Plugin for ScriptingPlugin {
   fn build(&self, app: &mut App) {
@@ -44,6 +51,8 @@ impl Plugin for ScriptingPlugin {
     );
     app.add_api_provider::<LuaScriptHost<()>>(Box::new(LuaBevyAPIProvider));
     app.add_api_provider::<LuaScriptHost<()>>(Box::new(LogAPIProvider));
-    app.update_documentation::<LuaScriptHost<()>>();
+    if self.0 {
+      app.update_documentation::<LuaScriptHost<()>>();
+    }
   }
 }

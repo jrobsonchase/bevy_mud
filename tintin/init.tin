@@ -5,4 +5,5 @@
 	#line oneshot #action {^Password:} {#send password;};
 }
 
-#ssl canton canton.ngrok.app 443
+#nop #ssl canton canton.ngrok.app 443
+#sess canton 127.0.0.1 23840

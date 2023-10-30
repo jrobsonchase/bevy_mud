@@ -13,7 +13,9 @@ use bevy_mod_scripting::{
   prelude::*,
 };
 use bevy_mod_scripting_lua::prelude::mlua::Debug;
-use tealr::{self,};
+use tealr::{
+  self,
+};
 
 pub struct LogAPIProvider;
 
@@ -55,7 +57,7 @@ impl TealData for LogModule {
       let entity = get_entity(lua);
       let debug_info = lua.inspect_stack(1).unwrap();
       let (file, line) = source_info(&debug_info);
-      trace!(?entity, %file, line, message);
+      debug!(?entity, %file, line, message);
       Ok(())
     });
     methods.document("Log a message at the INFO level.");

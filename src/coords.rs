@@ -7,7 +7,9 @@ use std::{
   },
 };
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default)]
+use bevy::reflect::Reflect;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default, Reflect)]
 pub struct Cubic(pub i64, pub i64, pub i64);
 
 impl Sub for Cubic {

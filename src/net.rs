@@ -45,6 +45,7 @@ use tracing::{
 };
 
 use crate::{
+  core::CantonStartup,
   oneshot::run_system,
   tasks::*,
 };
@@ -83,10 +84,11 @@ pub struct TelnetPlugin;
 impl Plugin for TelnetPlugin {
   fn build(&self, app: &mut App) {
     app
-      .add_systems(Startup, start_listener)
+      .add_systems(Startup, start_listener.in_set(CantonStartup::Io))
       .add_systems(First, new_conns)
       .add_systems(First, TelnetIn::update_system.after(new_conns))
-      .add_systems(Last, reap_conns);
+      .add_systems(Last, reap_conns)
+      .add_systems(Last, print_reaped_conns.after(reap_conns));
   }
 }
 
@@ -122,7 +124,7 @@ fn start_ngrok(rt: &TokioRuntime, domain: &str) -> anyhow::Result<UnboundedRecei
   info!(domain, "started ngrok tls listener");
   let (new_tx, new_rx) = mpsc::unbounded_channel();
 
-  let h = rt.handle().clone();
+  let h = rt.handle();
 
   rt.spawn(async move {
     while let Some(Ok(conn)) = l.next().await {
@@ -142,7 +144,7 @@ fn start_tcp(rt: &TokioRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<C
   info!(port, "started tcp listener");
   let (new_tx, new_rx) = mpsc::unbounded_channel();
 
-  let h = rt.handle().clone();
+  let h = rt.handle();
 
   rt.spawn(async move {
     while let Ok((conn, addr)) = l.accept().await {
@@ -454,5 +456,11 @@ fn reap_conns(mut cmd: Commands, conns: Query<(Entity, Option<&Parent>, &TelnetI
       debug!(?entity, "reaping connection");
       cmd.entity(entity).despawn();
     }
+  }
+}
+
+fn print_reaped_conns(mut conns: RemovedComponents<TelnetIn>) {
+  for entity in conns.iter() {
+    debug!(?entity, "connection despawned");
   }
 }

@@ -34,6 +34,19 @@
             fenix.overlays.default
           ];
         };
+        jaeger = pkgs.stdenv.mkDerivation rec {
+          pname = "jaeger";
+          version = "1.50.0";
+          src = pkgs.fetchzip {
+            url = "https://github.com/jaegertracing/jaeger/releases/download/v${version}/${pname}-${version}-linux-amd64.tar.gz";
+            sha256 = "sha256-CEByUORavOmDDX5hBNc2x5cFV1VIh0HqhYE56fuQVVk=";
+          };
+
+          buildPhase = ''
+            mkdir -p $out/bin
+            cp jaeger-* $out/bin/
+          '';
+        };
         tealr_doc_gen = pkgs.rustPlatform.buildRustPackage
           rec {
             pname = "tealr_doc_gen";
@@ -76,12 +89,17 @@
         defaultPackage = naersk-lib.buildPackage {
           pname = name;
           root = ./.;
+          buildInputs = with pkgs; [
+            cargo-binutils
+          ];
+          nativeBuidInputs = with pkgs; [
+          ];
         };
       in
       rec {
         inherit defaultPackage;
 
-        packages = builtins.listToAttrs [{ inherit name; value = defaultPackage; }] // { inherit tealr_doc_gen; };
+        packages = builtins.listToAttrs [{ inherit name; value = defaultPackage; }] // { inherit tealr_doc_gen jaeger; };
 
         # Update the `program` to match your binary's name.
         defaultApp = {
@@ -96,14 +114,23 @@
           buildInputs = with pkgs; [
             dev-toolchain
             rust-analyzer
-            clang
-            lld
             fix-n-fmt
+            (tracy.overrideAttrs (attrs: rec {
+              version = "0.9.1";
+              src = fetchFromGitHub {
+                owner = "wolfpld";
+                repo = "tracy";
+                rev = "v${version}";
+                sha256 = "sha256-K1lQNRS8+ju9HyKNVXtHqslrPWcPgazzTitvwkIO3P4=";
+              };
+            }))
             tintin-patched
             gnumake
             tealr_doc_gen
             luajitPackages.tl
             luajitPackages.lua
+            jaeger
+            lldb
             # Wrap sqlite3 in a shell script that enables foreign keys by default.
             (symlinkJoin {
               name = "sqlite";

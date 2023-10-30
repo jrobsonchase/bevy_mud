@@ -9,6 +9,8 @@ use signal_hook::{
   flag,
 };
 
+use crate::core::CantonStartup;
+
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Event, Debug, Copy, Clone)]
 pub enum Signal {
@@ -69,7 +71,7 @@ impl Plugin for SignalPlugin {
   fn build(&self, app: &mut App) {
     app
       .add_event::<Signal>()
-      .add_systems(Startup, start_handler)
+      .add_systems(Startup, start_handler.in_set(CantonStartup::System))
       .add_systems(Update, check_flag);
   }
 }
