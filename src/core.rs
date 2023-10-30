@@ -20,11 +20,12 @@ use tracing_subscriber::{
   EnvFilter,
 };
 
+#[cfg(feature = "scripting")]
+use crate::scripting::ScriptingPlugin;
 use crate::{
   framerate::LogFrameRatePlugin,
   net::TelnetPlugin,
   savestate::SaveStatePlugin,
-  scripting::ScriptingPlugin,
   signal::{
     Signal,
     SignalPlugin,
@@ -77,6 +78,7 @@ impl Plugin for CorePlugin {
 
     app.add_systems(Update, signal_handler);
 
+    #[cfg(feature = "scripting")]
     app.add_plugins(ScriptingPlugin::gen_docs(false));
 
     app.add_plugins((

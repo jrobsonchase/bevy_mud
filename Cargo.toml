@@ -47,11 +47,11 @@ bevy_mod_scripting = { version = "0.3.0", features = [
 	"luajit",
 	"teal",
 	"lua_script_api",
-], git = "https://github.com/makspll/bevy_mod_scripting" }
+], git = "https://github.com/makspll/bevy_mod_scripting", optional = true }
 bevy_mod_scripting_lua = { git = "https://github.com/makspll/bevy_mod_scripting", version = "0.3.0", features = [
 	"luajit",
 	"teal",
-] }
+], optional = true }
 ngrok = { version = "0.14.0-pre.8" }
 tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
 tracing-error = "0.2.0"
@@ -60,6 +60,7 @@ tracy-client = { version = "0.16.3", optional = true }
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
+scripting = ["bevy_mod_scripting", "bevy_mod_scripting_lua"]
 default = ["tracy"]
 
 # [patch.'https://github.com/makspll/bevy_mod_scripting']

@@ -8,12 +8,6 @@ use bevy::{
   ecs::system::Command,
   prelude::*,
 };
-use bevy_mod_scripting::prelude::{
-  LuaFile,
-  Script,
-  ScriptCollection,
-};
-use bevy_mod_scripting_lua::lua_path;
 
 use crate::{
   db::Db,
@@ -134,16 +128,9 @@ fn login_system(
             let output = world.entity(entity).get::<TelnetOut>().unwrap().clone();
             if success {
               output.line("\nSuccess!");
-              let srv = world.resource::<AssetServer>();
-              let path = lua_path!("player");
-              let script = srv.load::<LuaFile, &str>(path);
-              let collection = ScriptCollection {
-                scripts: vec![Script::<LuaFile>::new(path.into(), script)],
-              };
               world
                 .entity_mut(entity)
                 .remove::<LoginState>()
-                .insert(collection)
                 .insert(Player { username, id });
             } else {
               output.line("\nInvalid password.");

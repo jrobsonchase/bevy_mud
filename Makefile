@@ -1,4 +1,4 @@
-all: db.sqlite scripts
+all: db.sqlite
 
 clean:
 	rm -f db.sqlite
@@ -9,5 +9,5 @@ db.sqlite:
 
 .PHONY: scripts
 scripts:
-	cargo run --bin gen_types
+	cargo run --bin gen_types --features scripting
 	cd assets/scripts && tl build

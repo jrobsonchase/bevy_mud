@@ -12,6 +12,7 @@ pub mod db;
 pub mod framerate;
 pub mod oneshot;
 pub mod savestate;
+#[cfg(feature = "scripting")]
 pub mod scripting;
 pub mod signal;
 pub mod tasks;
