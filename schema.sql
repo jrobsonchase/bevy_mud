@@ -12,18 +12,15 @@ CREATE TABLE character (
 ) strict;
 CREATE TABLE entity (
 	id integer not null primary key,
-	parent integer,
-	constraint fk_entity_parent foreign key (parent) references entity(id) on delete cascade
+	parent integer references entity(id) on delete cascade
 ) strict;
 CREATE TABLE component (
 	id integer not null primary key,
 	name text not null unique
 ) strict;
 CREATE TABLE entity_component (
-	entity integer not null,
-	component integer not null,
+	entity integer not null references entity(id) on delete cascade,
+	component integer not null references component(id) on delete cascade,
 	data text not null,
-	primary key (entity, component),
-	constraint fk_ec_entity foreign key (entity) references entity(id) on delete cascade,
-	constraint fk_ec_component foreign key (component) references component(id) on delete cascade
+	primary key (entity, component)
 ) strict;
