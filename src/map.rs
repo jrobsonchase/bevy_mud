@@ -14,13 +14,18 @@ use bevy::{
 };
 use ratatui::{
   prelude::Rect,
+  style::Style,
   widgets::Widget,
 };
 
 use crate::{
   ascii_map::{
     render::Ansi,
-    widget::HexMap,
+    widget::{
+      Color,
+      HexMap,
+      Tile as TuiTile,
+    },
   },
   character::Player,
   coords::Cubic,
@@ -36,11 +41,16 @@ impl Plugin for MapPlugin {
       .persist_component::<MapName>()
       .persist_component::<MapCoords>()
       .persist_component::<Map>()
+      .persist_component::<TileColor>()
+      .persist_component::<TileSymbol>()
+      .persist_component::<MapWidget>()
       .persist_component::<Tile>();
 
-    app.register_type::<Cubic>();
-    app.register_type::<Tiles>();
-    app.register_type::<MapWidget>();
+    app
+      .register_type::<Color>()
+      .register_type::<Cubic>()
+      .register_type::<Tiles>()
+      .register_type::<MapWidget>();
 
     app.insert_resource(Maps::default());
 
@@ -180,6 +190,21 @@ pub struct Map;
 #[reflect(Component)]
 pub struct Tile;
 
+#[derive(Component, Reflect, Copy, Clone, Default)]
+#[reflect(Component)]
+pub struct TileColor(Color);
+
+#[derive(Component, Reflect, Copy, Clone, Default)]
+#[reflect(Component)]
+pub struct TileSymbol(char);
+
+#[derive(WorldQuery)]
+pub struct TileStyle {
+  marker: &'static Tile,
+  pub color: Option<&'static TileColor>,
+  pub symbol: Option<&'static TileSymbol>,
+}
+
 /// Either the name of this map (if the entity is tagged with [Map]), or the
 /// name of the map the entity is in.
 #[derive(
@@ -213,6 +238,7 @@ type LocationChanged = Or<(Changed<MapCoords>, Changed<MapName>)>;
 pub fn player_map_system(
   mut cmd: Commands,
   map_tiles: MapTiles,
+  tile_style: Query<TileStyle>,
   mut puppet_query: Query<PuppetLocation, LocationChanged>,
   player_query: Query<&TelnetOut>,
 ) {
@@ -236,8 +262,17 @@ pub fn player_map_system(
     widget.clear();
     widget.center(**puppet.coords);
     for coord in puppet.coords.spiral(5) {
-      if tiles.by_coords.get(&MapCoords(coord)).is_some() {
-        widget.insert(coord, Default::default());
+      if let Some(id) = tiles.by_coords.get(&MapCoords(coord)).copied() {
+        let mut tile = TuiTile::default();
+        if let Ok(style) = tile_style.get(id) {
+          if let Some(sym) = style.symbol {
+            tile.background().symbol(&format!("{}", sym.0));
+          }
+          if let Some(color) = style.color {
+            tile.background().style(Style::reset().fg(color.0.into()));
+          }
+        }
+        widget.insert(coord, tile);
       };
     }
     widget.tile(**puppet.coords).center().symbol("O");

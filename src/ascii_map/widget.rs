@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use ratatui::{
   buffer::Cell,
   prelude::{
-    Color,
+    Color as TuiColor,
     Rect,
     Style,
     *,
@@ -52,6 +52,56 @@ pub const EDGE_NEIGHBORS: [&[Cubic]; 8] = [
   &[Cubic(0, 1, -1)],
   &[Cubic(0, 1, -1), Cubic(1, 0, -1)],
 ];
+
+#[derive(Copy, Clone, Reflect, Default)]
+pub enum Color {
+  #[default]
+  Reset,
+  Black,
+  Red,
+  Green,
+  Yellow,
+  Blue,
+  Magenta,
+  Cyan,
+  Gray,
+  DarkGray,
+  LightRed,
+  LightGreen,
+  LightYellow,
+  LightBlue,
+  LightMagenta,
+  LightCyan,
+  White,
+  Rgb(u8, u8, u8),
+  Indexed(u8),
+}
+
+impl From<Color> for TuiColor {
+  fn from(color: Color) -> TuiColor {
+    match color {
+      Color::Reset => TuiColor::Reset,
+      Color::Black => TuiColor::Black,
+      Color::Red => TuiColor::Red,
+      Color::Green => TuiColor::Green,
+      Color::Yellow => TuiColor::Yellow,
+      Color::Blue => TuiColor::Blue,
+      Color::Magenta => TuiColor::Magenta,
+      Color::Cyan => TuiColor::Cyan,
+      Color::Gray => TuiColor::Gray,
+      Color::DarkGray => TuiColor::DarkGray,
+      Color::LightRed => TuiColor::LightRed,
+      Color::LightGreen => TuiColor::LightGreen,
+      Color::LightYellow => TuiColor::LightYellow,
+      Color::LightBlue => TuiColor::LightBlue,
+      Color::LightMagenta => TuiColor::LightMagenta,
+      Color::LightCyan => TuiColor::LightCyan,
+      Color::White => TuiColor::White,
+      Color::Rgb(r, g, b) => TuiColor::Rgb(r, g, b),
+      Color::Indexed(i) => TuiColor::Indexed(i),
+    }
+  }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct Tile {
@@ -307,7 +357,7 @@ impl<'a> Widget for &'a HexMap {
               } else {
                 EDGES[i].0
               };
-              buf.set_string(x, y, c, Style::reset().fg(Color::DarkGray));
+              buf.set_string(x, y, c, Style::reset().fg(TuiColor::DarkGray));
             } else {
               let mut neighbors = tile.background.iter().collect::<Vec<_>>();
               for bg in EDGE_NEIGHBORS[i]
