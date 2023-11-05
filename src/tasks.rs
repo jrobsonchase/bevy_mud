@@ -11,12 +11,9 @@ use std::{
 use anyhow::Error;
 use bevy::{
   core::FrameCount,
-  ecs::{
-    system::{
-      Command,
-      EntityCommands,
-    },
-    world::EntityMut,
+  ecs::system::{
+    Command,
+    EntityCommands,
   },
   prelude::*,
 };
@@ -165,7 +162,7 @@ pub trait EntityCommandsExt {
     E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static;
 }
 
-impl EntityCommandsExt for EntityMut<'_> {
+impl EntityCommandsExt for EntityWorldMut<'_> {
   fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
     T: Debug + Send + 'static,
@@ -199,8 +196,8 @@ impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
     E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
   {
-    self.add(move |entity: Entity, world: &mut World| {
-      world.entity_mut(entity).spawn_callback(fut, cb, on_err);
+    self.add(move |mut entity_world: EntityWorldMut| {
+      entity_world.spawn_callback(fut, cb, on_err);
     })
   }
 }

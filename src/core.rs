@@ -3,12 +3,13 @@ use std::{
   time::Duration,
 };
 
+#[cfg(feature = "scripting")]
+use bevy::asset::ChangeWatcher;
 use bevy::{
   app::{
     AppExit,
     ScheduleRunnerPlugin,
   },
-  asset::ChangeWatcher,
   diagnostic::DiagnosticsPlugin,
   prelude::*,
 };
@@ -68,6 +69,7 @@ impl Plugin for CorePlugin {
       ))),
       HierarchyPlugin,
       DiagnosticsPlugin,
+      #[cfg(feature = "scripting")]
       AssetPlugin {
         watch_for_changes: ChangeWatcher::with_delay(Duration::from_millis(100)),
         ..Default::default()
@@ -91,7 +93,7 @@ impl Plugin for CorePlugin {
 }
 
 fn signal_handler(mut signal: EventReader<Signal>, mut exit: EventWriter<AppExit>) {
-  match try_opt!(signal.iter().next().cloned(), return) {
+  match try_opt!(signal.read().next().cloned(), return) {
     signal @ Signal::SIGINT | signal @ Signal::SIGTERM | signal @ Signal::SIGQUIT => {
       debug!(?signal, "received signal, exiting");
       exit.send(AppExit);

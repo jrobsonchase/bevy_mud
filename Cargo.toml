@@ -9,11 +9,9 @@ default-run = "canton"
 
 [dependencies]
 anyhow = "1.0.75"
-bevy = { version = "0.11", features = [
-	"bevy_asset",
+bevy = { version = "0.12", features = [
 	"bevy_scene",
 	"trace",
-	"filesystem_watcher",
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
@@ -62,7 +60,7 @@ radix_trie = "0.2.1"
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
-scripting = ["bevy_mod_scripting", "bevy_mod_scripting_lua"]
+scripting = ["bevy_mod_scripting", "bevy_mod_scripting_lua", "bevy/bevy_asset"]
 default = ["tracy"]
 
 # [patch.'https://github.com/makspll/bevy_mod_scripting']

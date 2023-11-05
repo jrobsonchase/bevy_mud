@@ -140,7 +140,7 @@ fn track_tiles_system(
   // Since this should alawys be via a despawn (since tiles should never become
   // non-tiles), we won't have any more information and need to simply iterate
   // over all maps to find who owns it.
-  for ent in tiles_removed.iter() {
+  for ent in tiles_removed.read() {
     for mut tiles in map_tiles.tiles.iter_mut() {
       if let Some(coords) = tiles.by_id.remove(&ent) {
         tiles.by_coords.remove(&coords);
@@ -161,7 +161,7 @@ fn track_maps_system(
     cmd.entity(ent).insert(Tiles::default());
   }
 
-  for ent in removed.iter() {
+  for ent in removed.read() {
     if let Some(name) = maps.by_id.remove(&ent) {
       maps.by_name.remove(&name);
     }

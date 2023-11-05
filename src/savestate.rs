@@ -13,10 +13,7 @@ use std::{
 
 use bevy::{
   app::AppExit,
-  ecs::{
-    entity::EntityMap,
-    system::SystemParam,
-  },
+  ecs::system::SystemParam,
   prelude::*,
   reflect::{
     serde::{
@@ -25,7 +22,7 @@ use bevy::{
     },
     DynamicTupleStruct,
     GetTypeRegistration,
-    TypeRegistry,
+    TypeRegistryArc,
   },
   scene::DynamicEntity,
   utils::{
@@ -497,7 +494,7 @@ fn delete(
   }
   let map = db.map.read();
   let entities = query
-    .iter()
+    .read()
     .filter_map(|e| map.db_entity(e).map(|d| (e, d)))
     .collect::<Vec<_>>();
   drop(map);
@@ -505,7 +502,7 @@ fn delete(
     warn!(?error, "failed to delete entities");
     return;
   });
-  for entity in query.iter() {
+  for entity in query.read() {
     cmd.entity(entity).remove::<Persist>();
   }
 }
@@ -527,18 +524,18 @@ impl SharedDbEntityMap {
 #[allow(dead_code)]
 #[derive(Resource, Default, Debug)]
 struct DbEntityMap {
-  world_to_db: EntityMap,
-  db_to_world: EntityMap,
+  world_to_db: HashMap<Entity, Entity>,
+  db_to_world: HashMap<Entity, Entity>,
 }
 
 #[allow(dead_code)]
 impl DbEntityMap {
   fn db_entity(&self, world_entity: Entity) -> Option<DbEntity> {
-    self.world_to_db.get(world_entity).map(DbEntity)
+    self.world_to_db.get(&world_entity).copied().map(DbEntity)
   }
 
   fn world_entity(&self, db_entity: DbEntity) -> Option<Entity> {
-    self.db_to_world.get(db_entity.0)
+    self.db_to_world.get(&db_entity.0).copied()
   }
 
   fn add_db_mapping(&mut self, db_entity: DbEntity, world_entity: Entity) {
@@ -550,7 +547,7 @@ impl DbEntityMap {
   // mappings.
   fn update(&mut self) {
     self.db_to_world.iter().for_each(|(f, t)| {
-      self.world_to_db.insert(t, f);
+      self.world_to_db.insert(*t, *f);
     })
   }
 }
@@ -588,13 +585,13 @@ fn extract_entities(
   entities: impl Iterator<Item = Entity>,
   filter: SceneFilter,
 ) -> Vec<DynamicEntity> {
-  let mut bld = DynamicSceneBuilder::from_world(world);
-  bld
+  DynamicSceneBuilder::from_world(world)
     .with_filter(filter)
     .deny_all_resources()
     .extract_entities(entities)
-    .remove_empty_entities();
-  bld.build().entities
+    .remove_empty_entities()
+    .build()
+    .entities
 }
 
 #[allow(dead_code)]
@@ -605,12 +602,12 @@ type SerializedComponents<'a> = HashMap<Cow<'a, str>, String>;
 type SerializedEntities<'a> = HashMap<DbEntity, SerializedComponents<'a>>;
 
 fn serialize_component(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   component: &dyn Reflect,
 ) -> Result<(Cow<'static, str>, String), ron::Error> {
   let name = component
     .get_represented_type_info()
-    .map(|i| Cow::Borrowed(i.type_name()))
+    .map(|i| Cow::Borrowed(i.type_path()))
     .unwrap_or_else(|| Cow::Owned(component.reflect_type_path().to_string()));
   Ok((
     name,
@@ -622,7 +619,7 @@ fn serialize_component(
 }
 
 fn serialize_components(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   components: &[Box<dyn Reflect>],
 ) -> Result<SerializedComponents<'static>, ron::Error> {
   components
@@ -634,7 +631,7 @@ fn serialize_components(
 
 #[allow(dead_code)]
 fn serialize_entity(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   entity: &DynamicEntity,
 ) -> Result<(Entity, SerializedComponents<'static>), ron::Error> {
   serialize_components(type_registry, &entity.components).map(|c| (entity.entity, c))
@@ -642,7 +639,7 @@ fn serialize_entity(
 
 #[allow(dead_code)]
 fn serialize_entities(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   entities: &[DynamicEntity],
 ) -> Result<SerializedEntities<'static>, ron::Error> {
   entities
@@ -655,14 +652,14 @@ fn serialize_entities(
 
 #[allow(dead_code)]
 fn deserialize_component(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   name: &str,
   value: &str,
 ) -> Result<Box<dyn Reflect>, ron::Error> {
   let type_registry = type_registry.read();
   let registration =
     type_registry
-      .get_with_name(name)
+      .get_with_type_path(name)
       .ok_or_else(|| ron::Error::NoSuchStructField {
         expected: &["a valid component"],
         found: name.to_string(),
@@ -675,7 +672,7 @@ fn deserialize_component(
 
 #[allow(dead_code)]
 fn deserialize_entity(
-  type_registry: &TypeRegistry,
+  type_registry: &TypeRegistryArc,
   components: &SerializedComponents,
 ) -> Result<Vec<Box<dyn Reflect>>, ron::Error> {
   let components = components

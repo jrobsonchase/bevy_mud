@@ -2,7 +2,6 @@ use std::fmt::Write;
 
 use anyhow::anyhow;
 use bevy::{
-  ecs::entity::EntityMap,
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
   scene::{
@@ -10,6 +9,7 @@ use bevy::{
     serialize_ron,
     DynamicEntity,
   },
+  utils::HashMap,
 };
 use serde::de::DeserializeSeed;
 
@@ -38,10 +38,10 @@ fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
         } else {
           entities.retain(|e| world.get_entity(*e).is_some());
         }
-        let mut extractor = DynamicSceneBuilder::from_world(world);
-        extractor.allow_all();
-        extractor.extract_entities(entities.into_iter());
-        let scene = extractor.build();
+        let scene = DynamicSceneBuilder::from_world(world)
+          .allow_all()
+          .extract_entities(entities.into_iter())
+          .build();
         let registry = world.resource::<AppTypeRegistry>();
         let serializer = EntitiesSerializer {
           entities: &scene.entities,
@@ -88,7 +88,7 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       return;
     });
     let res = reg
-      .get_with_name(&component)
+      .get_with_type_path(&component)
       .ok_or_else(|| anyhow!("No such component: '{}'", component))
       .and_then(|info| {
         let de = TypedReflectDeserializer::new(info, &reg);
@@ -106,7 +106,7 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       }],
       ..Default::default()
     };
-    let mut mappings = EntityMap::default();
+    let mut mappings = HashMap::default();
     mappings.insert(ent, ent);
     try_res!(scene.write_to_world(world, &mut mappings), err => {
       out.line(format!("Failed to insert component: {}", err));
@@ -146,7 +146,7 @@ fn remove(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       return;
     });
     let res = reg
-      .get_with_name(&component)
+      .get_with_type_path(&component)
       .ok_or_else(|| anyhow!("No such component: '{}'", component));
     let info = try_res!(res, err => {
       out.line(format!("{}", err));

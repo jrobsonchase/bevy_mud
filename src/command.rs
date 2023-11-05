@@ -10,10 +10,7 @@ use std::{
 };
 
 use bevy::{
-  ecs::{
-    system::EntityCommands,
-    world::EntityMut,
-  },
+  ecs::system::EntityCommands,
   prelude::*,
 };
 use radix_trie::{
@@ -220,7 +217,7 @@ pub trait EntityCommandsExt {
   ) -> &mut Self;
 }
 
-impl<'w> EntityCommandsExt for EntityMut<'w> {
+impl<'w> EntityCommandsExt for EntityWorldMut<'w> {
   fn add_game_commands<C: Into<DynamicCommand>>(
     &mut self,
     commands: impl IntoIterator<Item = C> + Send + 'static,
@@ -239,8 +236,8 @@ impl<'w, 's, 'a> EntityCommandsExt for EntityCommands<'w, 's, 'a> {
     &mut self,
     commands: impl IntoIterator<Item = C> + Send + 'static,
   ) -> &mut Self {
-    self.add(move |entity: Entity, world: &mut World| {
-      world.entity_mut(entity).add_game_commands(commands);
+    self.add(move |mut entity_world: EntityWorldMut| {
+      entity_world.add_game_commands(commands);
     })
   }
 }

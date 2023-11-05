@@ -483,7 +483,7 @@ fn reap_conns(mut cmd: Commands, conns: Query<(Entity, Option<&Parent>, &TelnetI
 }
 
 fn print_reaped_conns(mut conns: RemovedComponents<TelnetIn>) {
-  for entity in conns.iter() {
+  for entity in conns.read() {
     debug!(?entity, "connection despawned");
   }
 }
