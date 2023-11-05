@@ -10,6 +10,7 @@ use std::{
 use bevy::reflect::Reflect;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default, Reflect)]
+#[reflect(Hash)]
 pub struct Cubic(pub i64, pub i64, pub i64);
 
 impl Sub for Cubic {

@@ -84,6 +84,11 @@ pub struct TelnetPlugin;
 impl Plugin for TelnetPlugin {
   fn build(&self, app: &mut App) {
     app
+      .register_type::<NewConns>()
+      .register_type::<TelnetIn>()
+      .register_type::<TelnetOut>()
+      .register_type::<Listener>()
+      .register_type::<ClientConn>()
       .add_systems(Startup, start_listener.in_set(CantonStartup::Io))
       .add_systems(First, new_conns)
       .add_systems(First, TelnetIn::update_system.after(new_conns))
@@ -95,15 +100,25 @@ impl Plugin for TelnetPlugin {
 #[derive(Resource, Debug, Copy, Clone)]
 pub struct PortArg(pub u32);
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(from_reflect = false)]
 struct NewConns {
+  #[reflect(ignore)]
   channel: UnboundedReceiver<ClientBundle>,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(from_reflect = false)]
+#[reflect(Component)]
 struct Listener {
   #[allow(dead_code)]
   port: u32,
+}
+
+impl Default for Listener {
+  fn default() -> Self {
+    Listener { port: 23840 }
+  }
 }
 
 fn start_ngrok(rt: &TokioRuntime, domain: &str) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
@@ -190,14 +205,17 @@ fn start_listener(
   }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct TelnetIn {
+  #[reflect(ignore)]
   channel: UnboundedReceiver<tellem::Event>,
+  #[reflect(ignore)]
   peek: Option<tellem::Event>,
   closed: bool,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Reflect, Default)]
 pub struct Closed;
 
 impl TelnetIn {
@@ -266,8 +284,10 @@ impl TelnetIn {
   }
 }
 
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct TelnetOut {
+  #[reflect(ignore)]
   channel: UnboundedSender<tellem::Event>,
 }
 
@@ -276,8 +296,9 @@ impl TelnetOut {
     Self { channel }
   }
 
-  pub fn telnet(&self, event: tellem::Event) {
+  pub fn telnet(&self, event: tellem::Event) -> &Self {
     let _ = self.channel.send(event);
+    self
   }
 
   fn normalize_string(s: impl AsRef<str>) -> BytesMut {
@@ -309,9 +330,9 @@ impl TelnetOut {
     data
   }
 
-  pub fn line(&self, s: impl AsRef<str>) {
+  pub fn line(&self, s: impl AsRef<str>) -> &Self {
     if self.closed() {
-      return;
+      return self;
     }
 
     let mut data = TelnetOut::normalize_string(s);
@@ -320,15 +341,15 @@ impl TelnetOut {
       data.extend_from_slice("\r\n".as_bytes());
     }
 
-    self.telnet(tellem::Event::Data(data));
+    self.telnet(tellem::Event::Data(data))
   }
 
-  pub fn string(&self, s: impl AsRef<str>) {
+  pub fn string(&self, s: impl AsRef<str>) -> &Self {
     if self.closed() {
-      return;
+      return self;
     }
 
-    self.telnet(tellem::Event::Data(TelnetOut::normalize_string(s)));
+    self.telnet(tellem::Event::Data(TelnetOut::normalize_string(s)))
   }
 
   pub fn closed(&self) -> bool {
@@ -343,8 +364,10 @@ impl<'a> Write for &'a TelnetOut {
   }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct ClientConn {
+  #[reflect(ignore)]
   pub remote_addr: SocketAddr,
 }
 

@@ -6,10 +6,13 @@ use std::{
   },
 };
 
+use bevy::prelude::*;
 use ratatui::{
   buffer::Cell,
   prelude::{
+    Color,
     Rect,
+    Style,
     *,
   },
   widgets::Widget,
@@ -152,8 +155,10 @@ impl Tile {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct HexMap {
+  #[reflect(ignore)]
   tiles: HashMap<Cubic, Tile>,
   center: Cubic,
   radius: u8,
@@ -185,6 +190,10 @@ impl HexMap {
     for c in out {
       self.tiles.remove(&c);
     }
+  }
+
+  pub fn clear(&mut self) {
+    self.tiles.clear();
   }
 
   pub fn edges(&mut self, render: bool) -> &mut Self {
@@ -289,9 +298,10 @@ impl<'a> Widget for &'a HexMap {
           if !visited.contains(&(x, y)) {
             visited.insert((x, y));
             if self.render_edges {
-              let has_neighbor = EDGE_NEIGHBORS[i].iter().map(|n| hex + *n).any(|h| {
-                dbg!(self.rect_coords(area, dbg!(h))).is_some() && self.tiles.contains_key(&h)
-              });
+              let has_neighbor = EDGE_NEIGHBORS[i]
+                .iter()
+                .map(|n| hex + *n)
+                .any(|h| self.rect_coords(area, h).is_some() && self.tiles.contains_key(&h));
               let c = if has_neighbor {
                 EDGES[i].1.unwrap_or(EDGES[i].0)
               } else {

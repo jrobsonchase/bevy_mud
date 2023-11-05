@@ -76,8 +76,15 @@ pub struct AutoLoad;
 /// allocated ID.
 /// If an entity has this component, but not [Loaded], it will be loaded from
 /// the database as soon as possible, and the [Loaded] component added.
-#[derive(Component, Copy, Clone, Hash, Eq, PartialEq, Debug)]
+#[derive(Component, Copy, Clone, Hash, Eq, PartialEq, Debug, Reflect)]
+#[reflect(Component)]
 pub struct DbEntity(pub Entity);
+
+impl Default for DbEntity {
+  fn default() -> Self {
+    DbEntity(Entity::PLACEHOLDER)
+  }
+}
 
 impl DbEntity {
   pub fn from_bits(bits: u64) -> Self {
@@ -93,15 +100,18 @@ impl DbEntity {
 /// this component subsequently removed, along with the [DbEntity] and [Persist]
 /// components.
 /// No effect if there is no DbEntity component.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Delete;
 
 /// Marker struct for entities that need to be loaded from the database.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Load;
 
 /// Marker struct for entities that should be saved.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Save;
 
 #[derive(Resource, Default)]
@@ -335,7 +345,6 @@ impl SaveDbOwned {
     let mut output = HashMap::new();
     let mut tx = self.db.begin().await?;
     for entity in entities {
-      debug!(entity = ?entity.entity, components = ?entity.components, "saving entity");
       let id = entity.entity;
 
       let mut parent = None;
@@ -359,6 +368,14 @@ impl SaveDbOwned {
       };
 
       let components = serialize_components(&self.type_registry, &components)?;
+
+      debug!(
+        entity = ?entity.entity,
+        ?db_entity,
+        ?db_parent,
+        ?components,
+        "saving entity",
+      );
 
       let db_entity = store_entity(&mut tx, db_entity, db_parent, &components).await?;
 
@@ -473,17 +490,23 @@ fn delete(
   mut cmd: Commands,
   db: SaveDb,
   rt: Res<TokioRuntime>,
-  query: Query<(Entity, &DbEntity), (With<Delete>, Without<Load>)>,
+  mut query: RemovedComponents<DbEntity>,
 ) {
   if query.is_empty() {
     return;
   }
-  try_res!(rt.block_on(db.to_owned().delete_entities(query.iter().map(|(e, d)| (e, *d)).collect())), error => {
+  let map = db.map.read();
+  let entities = query
+    .iter()
+    .filter_map(|e| map.db_entity(e).map(|d| (e, d)))
+    .collect::<Vec<_>>();
+  drop(map);
+  try_res!(rt.block_on(db.to_owned().delete_entities(entities)), error => {
     warn!(?error, "failed to delete entities");
     return;
   });
   for entity in query.iter() {
-    cmd.entity(entity.0).remove::<(DbEntity, Persist, Delete)>();
+    cmd.entity(entity).remove::<Persist>();
   }
 }
 
@@ -539,6 +562,10 @@ impl Plugin for SaveStatePlugin {
     app
       .insert_resource(SharedDbEntityMap::default())
       .insert_resource(PersistComponents::default())
+      .register_type::<DbEntity>()
+      .register_type::<Load>()
+      .register_type::<Save>()
+      .register_type::<Delete>()
       .persist_component::<Parent>()
       .persist_component::<AutoLoad>()
       .persist_component::<Persist>()
@@ -675,8 +702,9 @@ where
       // Make sure the entity exists and that the existing state is cleared.
       sqlx::query!(
         r#"
-          delete from entity where id = ?;
-          insert into entity (id, parent) values (?, ?);
+          delete from entity_component where entity = ?;
+          insert into entity (id, parent) values (?, ?)
+          on conflict do update set parent = excluded.parent;
         "#,
         id,
         id,

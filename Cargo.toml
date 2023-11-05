@@ -57,6 +57,7 @@ ngrok = { version = "0.14.0-pre.8" }
 tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
 tracing-error = "0.2.0"
 tracy-client = { version = "0.16.3", optional = true }
+radix_trie = "0.2.1"
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]

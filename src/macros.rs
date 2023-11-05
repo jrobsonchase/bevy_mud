@@ -38,3 +38,23 @@ macro_rules! try_res {
     }
   }};
 }
+
+#[macro_export]
+macro_rules! command_set {
+  ($name:ident => $($cmd:expr),+ $(,)*) => {
+    pub struct $name;
+    impl IntoIterator for $name {
+      type Item = $crate::command::DynamicCommand;
+      type IntoIter = std::vec::IntoIter<$crate::command::DynamicCommand>;
+      fn into_iter(self) -> Self::IntoIter {
+        let s = vec![
+          $(
+            $crate::command::DynamicCommand::from($cmd)
+          ),*
+        ];
+
+        s.into_iter()
+      }
+    }
+  };
+}

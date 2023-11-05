@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 #[macro_use]
 pub mod macros;
 
@@ -5,6 +7,8 @@ pub mod macros;
 pub mod net;
 
 pub mod account;
+pub mod character;
+pub mod command;
 
 pub mod coords;
 pub mod core;

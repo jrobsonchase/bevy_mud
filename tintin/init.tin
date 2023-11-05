@@ -1,9 +1,29 @@
+#config mouse on
+#event {SCROLLED MOUSE WHEEL UP} #buffer up 1
+#event {SCROLLED MOUSE WHEEL DOWN} #buffer down 1
+
+#split
+
 #event {SESSION CONNECTED}
 {
 	#line oneshot #action {^Account name:} {#send admin;};
 	#line oneshot #action {^Creating new account} {#send password;};
 	#line oneshot #action {^Password:} {#send password;};
+	#prompt {^> } {%%0};
+}
+
+#event {SESSION TIMED OUT}
+{
+	#gts #delay 1 .connect;
+}
+#event {SESSION DISCONNECTED}
+{
+	#gts #delay 1 .connect;
 }
 
 #nop #ssl canton canton.ngrok.app 443
-#sess canton 127.0.0.1 23840
+#alias .connect {
+	#sess canton 127.0.0.1 23840;
+}
+
+.connect

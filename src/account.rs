@@ -10,24 +10,41 @@ use bevy::{
 };
 
 use crate::{
+  character::{
+    Player,
+    Puppet,
+  },
   db::Db,
   net::*,
-  tasks::*,
+  savestate::{
+    DbEntity,
+    Load,
+  },
+  tasks::EntityCommandsExt as _,
 };
 
-#[derive(Component)]
-pub struct Player {
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Session {
   pub username: String,
   pub id: i64,
+  pub admin: bool,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 enum LoginState {
   Start,
   Username,
   Password { name: String, user_id: i64 },
   NewUserPassword { name: String },
   NewUserConfirm { name: String, password: String },
+}
+
+impl Default for LoginState {
+  fn default() -> Self {
+    Self::Start
+  }
 }
 
 pub struct StartLogin(pub Entity);
@@ -42,6 +59,7 @@ pub struct AccountPlugin;
 
 impl Plugin for AccountPlugin {
   fn build(&self, app: &mut App) {
+    app.register_type::<Session>();
     app.add_systems(
       Update,
       login_system.run_if(any_with_component::<LoginState>()),
@@ -127,11 +145,33 @@ fn login_system(
           move |success, entity, world| {
             let output = world.entity(entity).get::<TelnetOut>().unwrap().clone();
             if success {
-              output.line("\nSuccess!");
+              output.line("\nSuccess!").string("> ");
+              command!(output, GA);
+              let db = world.resource::<Db>().clone();
               world
                 .entity_mut(entity)
                 .remove::<LoginState>()
-                .insert(Player { username, id });
+                .insert(Session {
+                  username,
+                  id,
+                  admin: true,
+                })
+                .spawn_callback(
+                  async move {
+                    let mut conn = db.acquire().await?;
+                    let row = sqlx::query!("select entity from character where user_id = ?", id)
+                      .fetch_one(&mut *conn)
+                      .await?;
+                    Ok(DbEntity::from_bits(row.entity as _))
+                  },
+                  move |res, entity, world| {
+                    let character = world.spawn((res, Player(entity), Load)).id();
+                    world.entity_mut(entity).insert(Puppet(character));
+                  },
+                  move |error, entity, _world| {
+                    warn!(?entity, %error, "failed to find character");
+                  },
+                );
             } else {
               output.line("\nInvalid password.");
               world.entity_mut(entity).insert(LoginState::Start);
@@ -193,11 +233,15 @@ fn login_system(
             world
               .entity_mut(entity)
               .remove::<LoginState>()
-              .insert(Player { username: name, id });
+              .insert(Session {
+                username: name,
+                id,
+                admin: true,
+              });
           },
           move |err, entity, world| {
             if let Some(out) = world.entity(entity).get::<TelnetOut>() {
-              out.line(format!("\nerror creating user:\n{}", err))
+              out.line(format!("\nerror creating user:\n{}", err));
             }
             world.entity_mut(entity).insert(LoginState::Start);
           },

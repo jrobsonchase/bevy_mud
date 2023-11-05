@@ -11,9 +11,12 @@ use std::{
 use anyhow::Error;
 use bevy::{
   core::FrameCount,
-  ecs::system::{
-    Command,
-    EntityCommands,
+  ecs::{
+    system::{
+      Command,
+      EntityCommands,
+    },
+    world::EntityMut,
   },
   prelude::*,
 };
@@ -162,6 +165,32 @@ pub trait EntityCommandsExt {
     E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static;
 }
 
+impl EntityCommandsExt for EntityMut<'_> {
+  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  where
+    T: Debug + Send + 'static,
+    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
+    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
+  {
+    let entity = self.id();
+    let world = self.world();
+    let rt = world.resource::<TokioRuntime>();
+    let frame = world.resource::<FrameCount>().0;
+    trace!(frame, "spawning async task");
+    let task = rt.spawn(async move {
+      let task_result = fut.await?;
+      trace!(?task_result, ?entity, "async task completed");
+      Ok(BoxCommand::new(move |world: &mut World| {
+        cb(task_result, entity, world)
+      }))
+    });
+    let err_cb = Box::new(on_err);
+    self.insert(Callback(task, Some(err_cb)));
+    self
+  }
+}
+
 impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
   fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
@@ -171,20 +200,7 @@ impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
     E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
   {
     self.add(move |entity: Entity, world: &mut World| {
-      let rt = world.resource::<TokioRuntime>();
-      let frame = world.resource::<FrameCount>().0;
-      trace!(frame, "spawning async task");
-      let task = rt.spawn(async move {
-        let task_result = fut.await?;
-        trace!(?task_result, ?entity, "async task completed");
-        Ok(BoxCommand::new(move |world: &mut World| {
-          cb(task_result, entity, world)
-        }))
-      });
-      let err_cb = Box::new(on_err);
-      world
-        .entity_mut(entity)
-        .insert(Callback(task, Some(err_cb)));
+      world.entity_mut(entity).spawn_callback(fut, cb, on_err);
     })
   }
 }

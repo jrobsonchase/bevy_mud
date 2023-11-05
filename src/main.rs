@@ -6,6 +6,8 @@ use canton::{
     AccountPlugin,
     StartLogin,
   },
+  character::CharacterPlugin,
+  command::GameCommandsPlugin,
   core::CorePlugin,
   db::DbArg,
   map::MapPlugin,
@@ -64,6 +66,8 @@ fn main() -> anyhow::Result<()> {
   app.add_plugins(args);
 
   app.add_plugins(AccountPlugin);
+  app.add_plugins(GameCommandsPlugin);
+  app.add_plugins(CharacterPlugin);
   app.add_plugins(MapPlugin);
 
   app.add_systems(Update, telnet_handler);
