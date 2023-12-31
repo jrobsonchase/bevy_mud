@@ -1,4 +1,5 @@
 /.direnv
 /target
-db.sqlite
+db.sqlite*
 /.env
+
