@@ -14,7 +14,7 @@ impl Default for Player {
 }
 
 /// Pointer from a player to the character they're controlling.
-#[derive(Component, Deref, Debug, Reflect)]
+#[derive(Component, Deref, Debug, Reflect, Clone, Copy)]
 #[reflect(Component)]
 pub struct Puppet(pub Entity);
 

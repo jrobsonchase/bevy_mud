@@ -211,6 +211,7 @@ pub struct HexMap {
   #[reflect(ignore)]
   tiles: HashMap<Cubic, Tile>,
   center: Cubic,
+  rotation: i8,
   radius: u8,
   render_edges: bool,
 }
@@ -220,6 +221,7 @@ impl Default for HexMap {
     HexMap {
       tiles: HashMap::default(),
       center: Cubic(0, 0, 0),
+      rotation: 0,
       radius: 20,
       render_edges: true,
     }
@@ -263,6 +265,11 @@ impl HexMap {
     self.tiles.insert(coords, tile);
   }
 
+  pub fn rotation(&mut self, rotation: i8) -> &mut Self {
+    self.rotation = rotation;
+    self
+  }
+
   pub fn center(&mut self, coords: Cubic) -> &mut Self {
     self.center = coords;
     self
@@ -283,7 +290,7 @@ impl HexMap {
     if self.center.distance(coords) >= self.radius as _ {
       return None;
     }
-    let coords = coords - self.center;
+    let coords = (coords - self.center).rotate(self.rotation);
     let (x, y) = self.center_coords(rect);
     let mut x = x as i32;
     let mut y = y as i32;
@@ -350,7 +357,7 @@ impl<'a> Widget for &'a HexMap {
             if self.render_edges {
               let has_neighbor = EDGE_NEIGHBORS[i]
                 .iter()
-                .map(|n| hex + *n)
+                .map(|n| hex + n.rotate(-(self.rotation)))
                 .any(|h| self.rect_coords(area, h).is_some() && self.tiles.contains_key(&h));
               let c = if has_neighbor {
                 EDGES[i].1.unwrap_or(EDGES[i].0)

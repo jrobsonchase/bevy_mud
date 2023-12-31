@@ -106,6 +106,11 @@ pub struct Delete;
 #[reflect(Component)]
 pub struct Load;
 
+/// Marker struct for entities that should be saved and then despawned.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Unload;
+
 /// Marker struct for entities that should be saved.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
@@ -411,7 +416,31 @@ fn save_all(
   }
 }
 
-#[allow(clippy::type_complexity)]
+fn unload(
+  mut cmd: Commands,
+  extractor: EntityExtractor,
+  db: SaveDb,
+  rt: Res<TokioRuntime>,
+  query: Query<Entity, (With<Persist>, With<DbEntity>, With<Unload>)>,
+  children: Query<&Children>,
+) {
+  if query.is_empty() {
+    return;
+  }
+  let entities = extractor.extract_entities(
+    query
+      .iter()
+      .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
+  );
+  let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
+    warn!(?error, "failed to save entities to db");
+    return;
+  });
+  for (entity, _) in result {
+    cmd.entity(entity).despawn();
+  }
+}
+
 fn save(
   mut cmd: Commands,
   extractor: EntityExtractor,
@@ -487,14 +516,14 @@ fn delete(
   mut cmd: Commands,
   db: SaveDb,
   rt: Res<TokioRuntime>,
-  mut query: RemovedComponents<DbEntity>,
+  query: Query<Entity, With<Delete>>,
 ) {
   if query.is_empty() {
     return;
   }
   let map = db.map.read();
   let entities = query
-    .read()
+    .iter()
     .filter_map(|e| map.db_entity(e).map(|d| (e, d)))
     .collect::<Vec<_>>();
   drop(map);
@@ -502,7 +531,7 @@ fn delete(
     warn!(?error, "failed to delete entities");
     return;
   });
-  for entity in query.read() {
+  for entity in query.iter() {
     cmd.entity(entity).remove::<Persist>();
   }
 }
@@ -561,13 +590,14 @@ impl Plugin for SaveStatePlugin {
       .insert_resource(PersistComponents::default())
       .register_type::<DbEntity>()
       .register_type::<Load>()
+      .register_type::<Unload>()
       .register_type::<Save>()
       .register_type::<Delete>()
       .persist_component::<Parent>()
       .persist_component::<AutoLoad>()
       .persist_component::<Persist>()
       .add_systems(Startup, autoload.in_set(CantonStartup::World))
-      .add_systems(PostUpdate, (delete, load, save))
+      .add_systems(PostUpdate, (delete, load, unload, save))
       .add_systems(Last, save_all.run_if(on_event::<AppExit>()));
   }
 }

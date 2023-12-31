@@ -4,6 +4,9 @@
 //!
 //! Maps are hierarchical. Map -> Tile -> Errthang else.
 
+use std::io::Write;
+
+use base64::Engine as _;
 use bevy::{
   ecs::{
     query::WorldQuery,
@@ -11,6 +14,10 @@ use bevy::{
   },
   prelude::*,
   utils::HashMap,
+};
+use flate2::{
+  write::GzEncoder,
+  Compression,
 };
 use ratatui::{
   prelude::Rect,
@@ -29,7 +36,10 @@ use crate::{
   },
   character::Player,
   coords::Cubic,
-  net::TelnetOut,
+  net::{
+    TelnetOut,
+    GMCP,
+  },
   savestate::SaveExt,
 };
 
@@ -40,6 +50,7 @@ impl Plugin for MapPlugin {
     app
       .persist_component::<MapName>()
       .persist_component::<MapCoords>()
+      .persist_component::<MapFacing>()
       .persist_component::<Map>()
       .persist_component::<TileColor>()
       .persist_component::<TileSymbol>()
@@ -50,6 +61,7 @@ impl Plugin for MapPlugin {
       .register_type::<Color>()
       .register_type::<Cubic>()
       .register_type::<Tiles>()
+      .register_type::<Dig>()
       .register_type::<MapWidget>();
 
     app.insert_resource(Maps::default());
@@ -218,36 +230,51 @@ pub struct MapName(pub String);
 #[reflect(Component, Hash)]
 pub struct MapCoords(pub Cubic);
 
+/// An entity's facing, 0-5, 0 being north and each quantum being 60 deg.
+/// clockwise.
+#[derive(Component, Reflect, Clone, Copy, Deref, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Component, Hash)]
+pub struct MapFacing(pub u8);
+
 #[derive(WorldQuery, Debug)]
 #[world_query(mutable)]
 #[world_query(derive(Debug))]
 pub struct PuppetLocation<'a> {
   entity: Entity,
   coords: &'a MapCoords,
+  facing: &'a MapFacing,
   map: &'a MapName,
   puppet: &'a Player,
   widget: Option<&'a mut MapWidget>,
+  dig: Option<&'a Dig>,
 }
+
+#[derive(Default, Copy, Clone, Debug, Reflect, Component)]
+#[reflect(Component)]
+pub struct Dig;
 
 #[derive(Component, Reflect, Default, Debug, Deref, DerefMut)]
 #[reflect(Component)]
 pub struct MapWidget(#[reflect(ignore)] HexMap);
 
-type LocationChanged = Or<(Changed<MapCoords>, Changed<MapName>)>;
+type LocationChanged = Or<(Changed<MapCoords>, Changed<MapFacing>, Changed<MapName>)>;
 
 pub fn player_map_system(
   mut cmd: Commands,
   map_tiles: MapTiles,
   tile_style: Query<TileStyle>,
   mut puppet_query: Query<PuppetLocation, LocationChanged>,
-  player_query: Query<&TelnetOut>,
+  player_query: Query<(&TelnetOut, Option<&GMCP>)>,
 ) {
   for puppet in puppet_query.iter_mut() {
-    let out = player_query.get(**puppet.puppet).unwrap();
+    let (out, gmcp) = player_query.get(**puppet.puppet).unwrap();
     let (_, tiles) = map_tiles.by_name(puppet.map).unwrap();
     let tile = tiles.by_coords.get(puppet.coords).copied();
     if let Some(tile) = tile {
       cmd.entity(puppet.entity).set_parent(tile);
+    } else if puppet.dig.is_some() {
+      let new_tile = cmd.spawn((Tile, *puppet.coords, puppet.map.clone())).id();
+      cmd.entity(puppet.entity).set_parent(new_tile);
     } else {
       warn!(?puppet, "moved to an invalid tile");
       cmd.entity(puppet.entity).remove_parent();
@@ -261,6 +288,7 @@ pub fn player_map_system(
 
     widget.clear();
     widget.center(**puppet.coords);
+    widget.rotation(-(**puppet.facing as i8));
     for coord in puppet.coords.spiral(5) {
       if let Some(id) = tiles.by_coords.get(&MapCoords(coord)).copied() {
         let mut tile = TuiTile::default();
@@ -277,13 +305,27 @@ pub fn player_map_system(
     }
     widget.tile(**puppet.coords).center().symbol("O");
     let mut renderer = Ansi::default();
-    renderer.resize(Rect {
+    let map_area = Rect {
       width: 40,
-      height: 18,
+      height: 23,
       x: 0,
       y: 0,
-    });
-    widget.render(*renderer.area(), &mut renderer);
-    out.line(format!("Map:\n{}", renderer));
+    };
+    renderer.resize(map_area);
+    widget.render(map_area, &mut renderer);
+    if gmcp.is_some() {
+      let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+      write!(encoder, "{}", renderer).unwrap();
+      let bytes = encoder.finish().unwrap();
+      let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
+      negotiate!(
+        out,
+        sub,
+        GMCP,
+        format!("map {:?}", encoded).as_bytes().into()
+      );
+    } else {
+      out.line(format!("Map:\n{}", renderer));
+    }
   }
 }

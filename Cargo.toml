@@ -56,18 +56,11 @@ tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
 tracing-error = "0.2.0"
 tracy-client = { version = "0.16.3", optional = true }
 radix_trie = "0.2.1"
+flate2 = "1.0.28"
+base64 = "0.21.5"
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
 scripting = ["bevy_mod_scripting", "bevy_mod_scripting_lua", "bevy/bevy_asset"]
 default = ["tracy"]
-
-# [patch.'https://github.com/makspll/bevy_mod_scripting']
-# bevy_mod_scripting = { path = "../../../github.com/makspll/bevy_mod_scripting" }
-# bevy_mod_scripting_lua = { path = "../../../github.com/makspll/bevy_mod_scripting/languages/bevy_mod_scripting_lua" }
-# bevy_mod_scripting_core = { path = "../../../github.com/makspll/bevy_mod_scripting/bevy_mod_scripting_core" }
-# bevy_script_api = { path = "../../../github.com/makspll/bevy_mod_scripting/bevy_script_api" }
-
-# [patch.crates-io]
-# tracy-client = { path = "../../../github.com/nagisa/rust_tracy_client/tracy-client" }

@@ -20,7 +20,12 @@ use ngrok::prelude::{
   ConnInfo,
   TunnelBuilder,
 };
-use tellem::Event;
+use tellem::{
+  Cmd,
+  Event,
+  KnownOpt,
+  Opt,
+};
 use tokio::{
   io::{
     AsyncRead,
@@ -67,7 +72,7 @@ macro_rules! command {
 macro_rules! negotiate {
   ($out:expr, sub, $opt:tt, $data:expr) => {
     $out.telnet(tellem::Event::Subnegotiation(
-      tellem::Opt::KnownOpt(tellem::KnownOpt::$opt),
+      tellem::Opt::Known(tellem::KnownOpt::$opt),
       $data,
     ))
   };
@@ -92,6 +97,7 @@ impl Plugin for TelnetPlugin {
       .add_systems(Startup, start_listener.in_set(CantonStartup::Io))
       .add_systems(First, new_conns)
       .add_systems(First, TelnetIn::update_system.after(new_conns))
+      .add_systems(First, telnet_handler.after(TelnetIn::update_system))
       .add_systems(Last, reap_conns)
       .add_systems(Last, print_reaped_conns.after(reap_conns));
   }
@@ -485,5 +491,26 @@ fn reap_conns(mut cmd: Commands, conns: Query<(Entity, Option<&Parent>, &TelnetI
 fn print_reaped_conns(mut conns: RemovedComponents<TelnetIn>) {
   for entity in conns.read() {
     debug!(?entity, "connection despawned");
+  }
+}
+
+#[derive(Copy, Clone, Default, Debug, Component, Reflect)]
+#[reflect(Component)]
+pub struct GMCP;
+
+pub fn telnet_handler(mut cmd: Commands, mut query: Query<(Entity, &mut TelnetIn)>) {
+  for (entity, mut input) in query.iter_mut() {
+    while let Some(event) = input.next_telnet() {
+      match event {
+        Event::Negotiation(Cmd::DONT, Opt::Known(KnownOpt::GMCP)) => {
+          debug!(?entity, "not enabling GMCP");
+        }
+        Event::Negotiation(Cmd::DO, Opt::Known(KnownOpt::GMCP)) => {
+          debug!(?entity, "enabling GMCP");
+          cmd.entity(entity).insert(GMCP);
+        }
+        _ => debug!(?event, "ignoring telnet event"),
+      }
+    }
   }
 }

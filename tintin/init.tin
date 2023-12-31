@@ -2,10 +2,47 @@
 #event {SCROLLED MOUSE WHEEL UP} #buffer up 1
 #event {SCROLLED MOUSE WHEEL DOWN} #buffer down 1
 
-#split
+#variable TELNET[IAC]  \xFF;
+#variable TELNET[DONT] \xFE;
+#variable TELNET[DO]   \xFD;
+#variable TELNET[WONT] \xFC;
+#variable TELNET[WILL] \xFB;
+#variable TELNET[SB]   \xFA;
+#variable TELNET[SE]   \xF0;
+#variable TELNET[GMCP] \xC9;
+
+#var map {}
+
+#EVENT {IAC WILL GMCP}
+{
+    #info SYSTEM save;
+    #send {$TELNET[IAC]$TELNET[DO]$TELNET[GMCP]\};
+    #send {$TELNET[IAC]$TELNET[SB]$TELNET[GMCP] core.hello { "client": "$info[SYSTEM][CLIENT_NAME]", "version": "$info[SYSTEM][CLIENT_VERSION]" } $TELNET[IAC]$TELNET[SE]\};
+}
+
+#EVENT {IAC SB GMCP map IAC SE}
+{
+	#script map {echo %0 | base64 -d | zcat};
+	.drawmap
+}
+
+#alias .drawmap {
+	#draw tile 1 1 23 -1 $map[1..24];
+}
+
+#alias .resize {
+	#split 24 1 0 -80;
+	#screen refresh;
+	.drawmap
+}
+
+#event {SCREEN RESIZE} {
+	.resize
+}
 
 #event {SESSION CONNECTED}
 {
+	.resize;
 	#line oneshot #action {^Account name:} {#send admin;};
 	#line oneshot #action {^Creating new account} {#send password;};
 	#line oneshot #action {^Password:} {#send password;};
@@ -26,4 +63,7 @@
 	#sess canton 127.0.0.1 23840;
 }
 
-.connect
+#macro {\ew} forward
+#macro {\ea} left
+#macro {\es} backward
+#macro {\ed} right

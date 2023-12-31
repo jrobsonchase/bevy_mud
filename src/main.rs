@@ -11,6 +11,7 @@ use canton::{
   core::CorePlugin,
   db::DbArg,
   map::MapPlugin,
+  negotiate,
   net::{
     PortArg,
     *,
@@ -70,7 +71,6 @@ fn main() -> anyhow::Result<()> {
   app.add_plugins(CharacterPlugin);
   app.add_plugins(MapPlugin);
 
-  app.add_systems(Update, telnet_handler);
   app.add_systems(Update, greeter);
 
   app.run();
@@ -81,14 +81,7 @@ fn main() -> anyhow::Result<()> {
 fn greeter(mut cmd: Commands, mut query: Query<(Entity, &TelnetOut), Added<ClientConn>>) {
   for (entity, output) in query.iter_mut() {
     output.line("\x1b[1mWelcome!\x1b[0m");
+    negotiate!(output, WILL, GMCP);
     cmd.add(StartLogin(entity));
-  }
-}
-
-fn telnet_handler(_cmd: Commands, mut query: Query<&mut TelnetIn>) {
-  for mut input in query.iter_mut() {
-    while let Some(event) = input.next_telnet() {
-      debug!(?event, "ignoring telnet event");
-    }
   }
 }

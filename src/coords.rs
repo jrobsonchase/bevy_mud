@@ -37,6 +37,26 @@ const DIRECTIONS: [Cubic; 6] = [
 ];
 
 impl Cubic {
+  pub fn rotate_left(self) -> Cubic {
+    Cubic(self.2, self.0, self.1) * -1
+  }
+  pub fn rotate_right(self) -> Cubic {
+    Cubic(self.1, self.2, self.0) * -1
+  }
+  pub fn rotate(mut self, mut d: i8) -> Cubic {
+    let rotate_fn = if d < 0 {
+      d *= -1;
+      Cubic::rotate_left
+    } else {
+      Cubic::rotate_right
+    };
+
+    for _ in 0..d {
+      self = rotate_fn(self);
+    }
+
+    self
+  }
   pub fn distance(self, other: Cubic) -> i64 {
     (self.0 - other.0)
       .abs()
