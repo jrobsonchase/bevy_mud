@@ -63,7 +63,7 @@
 	#sess canton 127.0.0.1 23840;
 }
 
-#macro {\ew} forward
-#macro {\ea} left
-#macro {\es} backward
-#macro {\ed} right
+#macro {\ew} {#send forward; #line gag}
+#macro {\ea} {#send left; #line gag}
+#macro {\es} {#send backward; #line gag}
+#macro {\ed} {#send right; #line gag}
