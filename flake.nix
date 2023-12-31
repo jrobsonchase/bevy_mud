@@ -17,7 +17,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, naersk, flake-utils, fenix, pkgs, ... }@inputs:
+  outputs = { self, nixpkgs, naersk, flake-utils, fenix, ... }@inputs:
     let
       # If you have a workspace and your binary isn't at the root of the
       # repository, you may need to modify this path.
@@ -27,7 +27,6 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         lib = nixpkgs.lib;
-        tintin-patched = inputs.pkgs.legacyPackages.${system}.tintin;
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
@@ -124,7 +123,7 @@
                 sha256 = "sha256-K1lQNRS8+ju9HyKNVXtHqslrPWcPgazzTitvwkIO3P4=";
               };
             }))
-            tintin-patched
+            tintin
             gnumake
             tealr_doc_gen
             luajitPackages.tl
