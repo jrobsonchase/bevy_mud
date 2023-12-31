@@ -157,6 +157,36 @@ fn save_all(
   }
 }
 
+fn track_hier(
+  mut cmd: Commands,
+  needs_delete: Query<
+    Entity,
+    (
+      With<DbEntity>,
+      Without<Parent>,
+      Without<Persist>,
+      Without<Delete>,
+      Without<Load>,
+    ),
+  >,
+  children: Query<&Children>,
+) {
+  for entity in needs_delete.iter() {
+    debug!(?entity, "delete orphaned entity");
+    cmd.entity(entity).insert(Delete);
+    for child in children.iter_descendants(entity) {
+      debug!(?child, "delete child of orphaned entity");
+      cmd.entity(child).insert(Delete);
+    }
+  }
+}
+
+fn untrack(db: SaveDb, mut removed: RemovedComponents<DbEntity>) {
+  for ent in removed.read() {
+    db.remove_mapping(ent);
+  }
+}
+
 fn unload(
   mut cmd: Commands,
   extractor: EntityExtractor,
@@ -247,7 +277,6 @@ fn load(
   for (entity, db_entity) in query.iter() {
     db_entities.push(*db_entity);
     orig.push(entity);
-    debug!(?entity, ?db_entity, "adding mapping");
     db.add_mapping(*db_entity, entity);
   }
   let entities = try_res!(rt.block_on(db.to_owned().load_entities(db_entities, None)), error => {
@@ -277,7 +306,6 @@ fn delete(
     cmd
       .entity(entity.entity)
       .remove::<(Persist, DbEntity, Delete)>();
-    entity.despawn(&mut cmd);
   }
 }
 
@@ -298,6 +326,8 @@ impl Plugin for SaveStatePlugin {
       .persist_component::<Persist>()
       .add_systems(Startup, autoload.in_set(CantonStartup::World))
       .add_systems(PostUpdate, (delete, load, unload, save))
+      .add_systems(PostUpdate, untrack.after(unload).after(delete))
+      .add_systems(PostUpdate, track_hier.before(delete).before(save))
       .add_systems(Last, save_all.run_if(on_event::<AppExit>()));
   }
 }

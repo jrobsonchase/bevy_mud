@@ -38,6 +38,7 @@ pub fn deserialize_entity(
   type_registry: &TypeRegistryArc,
   components: &SerializedComponents,
 ) -> Result<Vec<Box<dyn Reflect>>, ron::Error> {
+  debug!(?components, "deserializing entity");
   let components = components
     .iter()
     .map(|(name, serialized)| deserialize_component(type_registry, name, serialized))

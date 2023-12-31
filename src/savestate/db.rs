@@ -68,7 +68,6 @@ impl<'w> SaveDb<'w> {
         .collect(),
       ..Default::default()
     };
-    debug!("spawning fetched entities");
     move |world: &mut World| {
       {
         let mut map = mappings.write();
@@ -101,6 +100,10 @@ impl<'w> SaveDb<'w> {
   pub fn add_mapping(&self, db_entity: DbEntity, world_entity: Entity) {
     let mut map = self.map.write();
     map.add_db_mapping(db_entity, world_entity);
+  }
+  pub fn remove_mapping(&self, world_entity: Entity) {
+    let mut map = self.map.write();
+    map.remove_db_mapping(world_entity);
   }
   pub fn db_entities(&self, entities: impl Iterator<Item = Entity>) -> Vec<(Entity, DbEntity)> {
     let db = self.map.read();
@@ -191,6 +194,10 @@ impl SaveDbOwned {
     write!(&mut query, ")")?;
     let mut conn = self.db.acquire().await?;
     sqlx::query(&query).execute(&mut *conn).await?;
+    let mut map = self.map.write();
+    for entity in &entities {
+      map.remove_db_mapping(entity.0);
+    }
     Ok(())
   }
   pub async fn save_entities(
@@ -274,8 +281,16 @@ impl DbEntityMap {
   }
 
   fn add_db_mapping(&mut self, db_entity: DbEntity, world_entity: Entity) {
+    debug!(?world_entity, ?db_entity, "adding mapping");
     self.db_to_world.insert(db_entity.0, world_entity);
     self.world_to_db.insert(world_entity, db_entity.0);
+  }
+
+  fn remove_db_mapping(&mut self, world_entity: Entity) {
+    if let Some(db_entity) = self.world_to_db.remove(&world_entity) {
+      debug!(?world_entity, ?db_entity, "removing mapping");
+      self.db_to_world.remove(&db_entity);
+    }
   }
 
   // After entities are loaded from the db, we need to update the reverse

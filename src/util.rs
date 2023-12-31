@@ -15,6 +15,7 @@ impl<'a, 'b> HierEntityItem<'a, 'b> {
       parent.remove_children(&[self.entity]);
     }
     if let Some(ent) = cmds.get_entity(self.entity) {
+      debug!(?self.entity, "despawning recursively");
       ent.despawn_recursive();
     }
   }
