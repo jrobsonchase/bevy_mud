@@ -53,6 +53,7 @@ use crate::{
   core::CantonStartup,
   oneshot::run_system,
   tasks::*,
+  util::HierEntity,
 };
 
 #[macro_export]
@@ -476,14 +477,11 @@ fn new_conns(mut cmd: Commands, mut query: Query<(Entity, &mut NewConns, Option<
 }
 
 #[allow(clippy::type_complexity)]
-fn reap_conns(mut cmd: Commands, conns: Query<(Entity, Option<&Parent>, &TelnetIn)>) {
-  for (entity, parent, input) in conns.iter() {
+fn reap_conns(mut cmd: Commands, conns: Query<(HierEntity, &TelnetIn)>) {
+  for (child, input) in conns.iter() {
     if input.closed() {
-      if let Some(parent) = parent {
-        cmd.entity(parent.get()).remove_children(&[entity]);
-      }
-      debug!(?entity, "reaping connection");
-      cmd.entity(entity).despawn();
+      debug!(?child.entity, "reaping connection");
+      child.despawn(&mut cmd);
     }
   }
 }

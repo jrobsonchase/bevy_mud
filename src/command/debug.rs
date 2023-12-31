@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use anyhow::anyhow;
 use bevy::{
+  ecs::system::Command,
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
   scene::{
@@ -182,7 +183,8 @@ fn despawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     if let Some(parent) = world.get::<Parent>(ent) {
       world.entity_mut(parent.get()).remove_children(&[ent]);
     }
-    if world.despawn(ent) {
+    if world.get_entity(ent).is_some() {
+      DespawnRecursive { entity: ent }.apply(world);
       writeln!(&out, "Despawned entity: {}", ent.to_bits()).unwrap();
     } else {
       writeln!(&out, "No such entity: {}", ent.to_bits()).unwrap();

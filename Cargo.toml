@@ -11,6 +11,8 @@ default-run = "canton"
 anyhow = "1.0.75"
 bevy = { version = "0.12", features = [
 	"bevy_scene",
+	"bevy_asset",
+	"file_watcher",
 	"trace",
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
@@ -42,15 +44,6 @@ serde = "1.0.189"
 ron = "0.8.1"
 ratatui = { version = "0.24.0", default-features = false }
 ansi_term = "0.12.1"
-bevy_mod_scripting = { version = "0.3.0", features = [
-	"luajit",
-	"teal",
-	"lua_script_api",
-], git = "https://github.com/makspll/bevy_mod_scripting", optional = true }
-bevy_mod_scripting_lua = { git = "https://github.com/makspll/bevy_mod_scripting", version = "0.3.0", features = [
-	"luajit",
-	"teal",
-], optional = true }
 ngrok = { version = "0.14.0-pre.8" }
 tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
 tracing-error = "0.2.0"
@@ -62,5 +55,4 @@ base64 = "0.21.5"
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
-scripting = ["bevy_mod_scripting", "bevy_mod_scripting_lua", "bevy/bevy_asset"]
 default = ["tracy"]

@@ -64,7 +64,6 @@ impl Plugin for AccountPlugin {
       Update,
       login_system.run_if(any_with_component::<LoginState>()),
     );
-    app.add_systems(Update, disconnect_system);
   }
 }
 

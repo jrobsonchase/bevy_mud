@@ -3,8 +3,6 @@ use std::{
   time::Duration,
 };
 
-#[cfg(feature = "scripting")]
-use bevy::asset::ChangeWatcher;
 use bevy::{
   app::{
     AppExit,
@@ -21,8 +19,6 @@ use tracing_subscriber::{
   EnvFilter,
 };
 
-#[cfg(feature = "scripting")]
-use crate::scripting::ScriptingPlugin;
 use crate::{
   framerate::LogFrameRatePlugin,
   net::TelnetPlugin,
@@ -69,19 +65,12 @@ impl Plugin for CorePlugin {
       ))),
       HierarchyPlugin,
       DiagnosticsPlugin,
-      #[cfg(feature = "scripting")]
-      AssetPlugin {
-        watch_for_changes: ChangeWatcher::with_delay(Duration::from_millis(100)),
-        ..Default::default()
-      },
+      AssetPlugin::default(),
       SignalPlugin,
       LogFrameRatePlugin::<10>,
     ));
 
     app.add_systems(Update, signal_handler);
-
-    #[cfg(feature = "scripting")]
-    app.add_plugins(ScriptingPlugin::gen_docs(false));
 
     app.add_plugins((
       TokioPlugin::new(self.0.clone()),

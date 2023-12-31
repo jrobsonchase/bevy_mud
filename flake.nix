@@ -112,7 +112,7 @@
           ];
           buildInputs = with pkgs; [
             dev-toolchain
-            rust-analyzer
+            rust-analyzer-nightly
             fix-n-fmt
             (tracy.overrideAttrs (attrs: rec {
               version = "0.9.1";
