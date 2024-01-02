@@ -1112,6 +1112,7 @@ dependencies = [
  "base64 0.21.5",
  "bcrypt",
  "bevy",
+ "bitflags 2.4.1",
  "bytes",
  "clap",
  "flate2",

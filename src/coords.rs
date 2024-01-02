@@ -2,6 +2,7 @@ use std::{
   iter,
   ops::{
     Add,
+    AddAssign,
     Mul,
     Sub,
   },
@@ -27,7 +28,13 @@ impl Add for Cubic {
   }
 }
 
-const DIRECTIONS: [Cubic; 6] = [
+impl AddAssign for Cubic {
+  fn add_assign(&mut self, rhs: Self) {
+    *self = *self + rhs;
+  }
+}
+
+pub const DIRECTIONS: [Cubic; 6] = [
   Cubic(1, 0, -1),
   Cubic(1, -1, 0),
   Cubic(0, -1, 1),
@@ -62,6 +69,10 @@ impl Cubic {
       .abs()
       .max((self.1 - other.1).abs())
       .max((self.2 - other.2).abs())
+  }
+  pub fn direction(self) -> f32 {
+    let (x, y) = self.square();
+    (x as f32).atan2(y as f32)
   }
   pub fn neighbor(self, i: u8) -> Option<Cubic> {
     DIRECTIONS.get(i as usize).copied().map(move |d| d + self)
@@ -98,6 +109,12 @@ impl Cubic {
   pub fn spiral(self, radius: u64) -> impl Iterator<Item = Cubic> {
     (0..=radius).flat_map(move |r| self.ring(r))
   }
+
+  fn square(self) -> (f32, f32) {
+    let x = 3. / 2. * (self.0 as f32);
+    let y = (3f32).sqrt() / 2. * (self.0 as f32) + (3f32).sqrt() * (self.1 as f32);
+    (x, y)
+  }
 }
 
 impl Mul<i64> for Cubic {
@@ -110,6 +127,14 @@ impl Mul<i64> for Cubic {
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn test_direction() {
+    for (i, d) in DIRECTIONS.iter().map(|d| d.direction()).enumerate() {
+      println!("{}: {}", i, d);
+    }
+    // panic!()
+  }
 
   #[test]
   fn test_ring() {

@@ -20,9 +20,8 @@ use crate::{
   coords::Cubic,
   core::CantonStartup,
   map::{
+    self,
     Map,
-    MapCoords,
-    MapName,
     Tile,
   },
   tasks::TokioRuntime,
@@ -137,15 +136,21 @@ fn save_all(
   extractor: EntityExtractor,
   db: SaveDb,
   rt: Res<TokioRuntime>,
-  query: Query<Entity, With<Persist>>,
+  query: Query<(Entity, Option<&DbEntity>), With<Persist>>,
   children: Query<&Children>,
 ) {
   if query.is_empty() {
     return;
   }
+  for (ent, db_ent) in query.iter() {
+    if let Some(db_ent) = db_ent {
+      db.add_mapping(*db_ent, ent);
+    }
+  }
   let entities = extractor.extract_entities(
     query
       .iter()
+      .map(|t| t.0)
       .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
   );
   let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
@@ -224,15 +229,21 @@ fn save(
   extractor: EntityExtractor,
   db: SaveDb,
   rt: Res<TokioRuntime>,
-  query: Query<Entity, Or<(With<Save>, (With<Persist>, Without<DbEntity>))>>,
+  query: Query<(Entity, Option<&DbEntity>), Or<(With<Save>, (With<Persist>, Without<DbEntity>))>>,
   children: Query<&Children>,
 ) {
   if query.is_empty() {
     return;
   }
+  for (ent, db_ent) in query.iter() {
+    if let Some(db_ent) = db_ent {
+      db.add_mapping(*db_ent, ent);
+    }
+  }
   let entities = extractor.extract_entities(
     query
       .iter()
+      .map(|t| t.0)
       .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
   );
   let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
@@ -254,11 +265,16 @@ fn autoload(mut cmd: Commands, db: SaveDb, rt: Res<TokioRuntime>) {
     cmd.add(db.write_to_world(entities));
   } else {
     debug!("spawning empty-ish map");
-    cmd
-      .spawn((Persist, AutoLoad, Map, MapName("default".into())))
-      .with_children(|cmd| {
-        cmd.spawn((Tile, MapName("default".into()), MapCoords(Cubic(0, 0, 0))));
-      });
+    cmd.spawn((Persist, AutoLoad, Map("default".into())));
+    cmd.spawn((
+      Persist,
+      Tile,
+      map::Transform {
+        map: "default".into(),
+        coords: Cubic(0, 0, 0),
+        ..Default::default()
+      },
+    ));
   }
 }
 
@@ -300,6 +316,7 @@ fn delete(
   debug!(?entities, "attempting to delete entities");
   try_res!(rt.block_on(db.to_owned().delete_entities(entities)), error => {
     warn!(?error, "failed to delete entities");
+    panic!();
     return;
   });
   for entity in query.iter() {
@@ -325,9 +342,12 @@ impl Plugin for SaveStatePlugin {
       .persist_component::<AutoLoad>()
       .persist_component::<Persist>()
       .add_systems(Startup, autoload.in_set(CantonStartup::World))
-      .add_systems(PostUpdate, (delete, load, unload, save))
-      .add_systems(PostUpdate, untrack.after(unload).after(delete))
-      .add_systems(PostUpdate, track_hier.before(delete).before(save))
+      .add_systems(Last, (delete, load, unload, save))
+      .add_systems(Last, untrack.after(unload).after(delete).before(save_all))
+      .add_systems(
+        Last,
+        track_hier.before(delete).before(save).before(save_all),
+      )
       .add_systems(Last, save_all.run_if(on_event::<AppExit>()));
   }
 }

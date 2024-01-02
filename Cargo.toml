@@ -51,6 +51,7 @@ tracy-client = { version = "0.16.3", optional = true }
 radix_trie = "0.2.1"
 flate2 = "1.0.28"
 base64 = "0.21.5"
+bitflags = "2.4.1"
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]

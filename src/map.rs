@@ -4,7 +4,14 @@
 //!
 //! Maps are hierarchical. Map -> Tile -> Errthang else.
 
-use std::io::Write;
+use std::{
+  collections::BTreeMap,
+  f32::consts::{
+    FRAC_PI_3,
+    PI,
+  },
+  io::Write,
+};
 
 use base64::Engine as _;
 use bevy::{
@@ -13,7 +20,10 @@ use bevy::{
     system::SystemParam,
   },
   prelude::*,
-  utils::HashMap,
+  utils::{
+    hashbrown::HashSet,
+    HashMap,
+  },
 };
 use flate2::{
   write::GzEncoder,
@@ -21,7 +31,6 @@ use flate2::{
 };
 use ratatui::{
   prelude::Rect,
-  style::Style,
   widgets::Widget,
 };
 
@@ -31,6 +40,8 @@ use crate::{
     widget::{
       Color,
       HexMap,
+      Modifier,
+      Style,
       Tile as TuiTile,
     },
   },
@@ -47,20 +58,26 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
   fn build(&self, app: &mut App) {
+    app.add_event::<RenderRequest>().add_event::<Moved>();
     app
-      .persist_component::<MapName>()
-      .persist_component::<MapCoords>()
-      .persist_component::<MapFacing>()
+      .persist_component::<Name>()
       .persist_component::<Map>()
-      .persist_component::<TileColor>()
-      .persist_component::<TileSymbol>()
       .persist_component::<MapWidget>()
+      .persist_component::<Transform>()
+      .persist_component::<Render>()
       .persist_component::<Tile>();
 
     app
+      .register_type::<GlobalTransform>()
+      .register_type::<Symbol>()
+      .register_type::<Option<Symbol>>()
+      .register_type::<Style>()
+      .register_type::<Option<Style>>()
       .register_type::<Color>()
+      .register_type::<Option<Color>>()
+      .register_type::<Modifier>()
       .register_type::<Cubic>()
-      .register_type::<Tiles>()
+      .register_type::<Entities>()
       .register_type::<Dig>()
       .register_type::<MapWidget>();
 
@@ -68,185 +85,120 @@ impl Plugin for MapPlugin {
 
     app.add_systems(
       PreUpdate,
-      (track_maps_system, apply_deferred, track_tiles_system).chain(),
+      (
+        (track_maps_system, add_global),
+        apply_deferred,
+        propagate_transforms,
+        emit_change_events,
+        render_map_system,
+      )
+        .chain(),
     );
-    app.add_systems(PostUpdate, player_map_system);
   }
 }
 
 #[derive(Resource, Default)]
 pub struct Maps {
-  pub by_name: HashMap<MapName, Entity>,
-  pub by_id: HashMap<Entity, MapName>,
+  pub by_name: HashMap<String, Entity>,
+  pub by_id: HashMap<Entity, String>,
 }
 
-/// Quick reference for all of the tiles that are children of a particular map.
-#[derive(Component, Default, Reflect, Eq, PartialEq)]
-#[reflect(Component)]
-pub struct Tiles {
-  pub by_coords: HashMap<MapCoords, Entity>,
-  pub by_id: HashMap<Entity, MapCoords>,
+/// Quick reference for all of the entities that are on a particular map.
+#[derive(Reflect, Component, Default, Eq, PartialEq)]
+pub struct Entities {
+  #[reflect(ignore)]
+  pub by_coords: HashMap<Cubic, BTreeMap<i8, Vec<Entity>>>,
+  #[reflect(ignore)]
+  pub by_id: HashMap<Entity, Transform>,
+}
+
+impl Entities {
+  pub fn iter_at(&self, coord: &Cubic) -> impl Iterator<Item = (i8, Entity)> + '_ {
+    self.by_coords.get(coord).into_iter().flat_map(|layers| {
+      layers
+        .iter()
+        .flat_map(|(l, entities)| entities.iter().map(|entity| (*l, *entity)))
+    })
+  }
 }
 
 #[derive(SystemParam)]
-pub struct MapTilesMut<'w, 's> {
+pub struct MapEntitiesMut<'w, 's> {
   pub maps: Res<'w, Maps>,
-  pub tiles: Query<'w, 's, &'static mut Tiles>,
+  pub tiles: Query<'w, 's, &'static mut Entities>,
 }
 
 #[derive(SystemParam)]
-pub struct MapTiles<'w, 's> {
+pub struct MapEntities<'w, 's> {
   pub maps: Res<'w, Maps>,
-  pub tiles: Query<'w, 's, &'static Tiles>,
+  pub tiles: Query<'w, 's, &'static Entities>,
 }
 
-impl<'w, 's> MapTilesMut<'w, 's> {
-  pub fn by_name_mut(&mut self, name: &MapName) -> Option<(Entity, Mut<Tiles>)> {
+impl<'w, 's> MapEntitiesMut<'w, 's> {
+  pub fn by_name_mut(&mut self, name: &str) -> Option<(Entity, Mut<Entities>)> {
     let id = self.maps.by_name.get(name).copied()?;
     let tiles = self.tiles.get_mut(id).ok()?;
     Some((id, tiles))
   }
-  pub fn by_name(&self, name: &MapName) -> Option<(Entity, &Tiles)> {
+  pub fn by_name(&self, name: &str) -> Option<(Entity, &Entities)> {
     let id = self.maps.by_name.get(name).copied()?;
     let tiles = self.tiles.get(id).ok()?;
     Some((id, tiles))
   }
-  pub fn by_id_mut(&mut self, id: Entity) -> Option<Mut<Tiles>> {
+  pub fn by_id_mut(&mut self, id: Entity) -> Option<Mut<Entities>> {
     self.tiles.get_mut(id).ok()
   }
-  pub fn by_id(&self, id: Entity) -> Option<&Tiles> {
+  pub fn by_id(&self, id: Entity) -> Option<&Entities> {
     self.tiles.get(id).ok()
   }
 }
 
-impl<'w, 's> MapTiles<'w, 's> {
-  pub fn by_name(&self, name: &MapName) -> Option<(Entity, &Tiles)> {
+impl<'w, 's> MapEntities<'w, 's> {
+  pub fn by_name(&self, name: &str) -> Option<(Entity, &Entities)> {
     let id = self.maps.by_name.get(name).copied()?;
     let tiles = self.tiles.get(id).ok()?;
     Some((id, tiles))
   }
-  pub fn by_id(&self, id: Entity) -> Option<&Tiles> {
+  pub fn by_id(&self, id: Entity) -> Option<&Entities> {
     self.tiles.get(id).ok()
-  }
-}
-
-fn track_tiles_system(
-  mut cmd: Commands,
-  mut map_tiles: MapTilesMut,
-  parent_query: Query<&Parent>,
-  tile_query: Query<
-    (Entity, &MapName, &MapCoords),
-    (Or<(Changed<MapName>, Changed<MapCoords>)>, With<Tile>),
-  >,
-  mut tiles_removed: RemovedComponents<Tile>,
-) {
-  for (ent, map, loc) in tile_query.iter() {
-    // Walk up the hierarchy to find the parent map, and remove this tile by id.
-    for p in parent_query.iter_ancestors(ent) {
-      if let Some(mut tiles) = map_tiles.by_id_mut(p) {
-        if let Some(coords) = tiles.by_id.remove(&ent) {
-          tiles.by_coords.remove(&coords);
-        }
-        break;
-      }
-    }
-    // Insert the tile into the new map and set its parent.
-    if let Some((map_ent, mut tiles)) = map_tiles.by_name_mut(map) {
-      tiles.by_id.insert(ent, *loc);
-      tiles.by_coords.insert(*loc, ent);
-      cmd.entity(ent).set_parent(map_ent);
-    }
-  }
-
-  // Handle tiles that have gone away entirely.
-  // Since this should alawys be via a despawn (since tiles should never become
-  // non-tiles), we won't have any more information and need to simply iterate
-  // over all maps to find who owns it.
-  for ent in tiles_removed.read() {
-    for mut tiles in map_tiles.tiles.iter_mut() {
-      if let Some(coords) = tiles.by_id.remove(&ent) {
-        tiles.by_coords.remove(&coords);
-      }
-    }
-  }
-}
-
-fn track_maps_system(
-  mut cmd: Commands,
-  mut maps: ResMut<Maps>,
-  map_added: Query<(Entity, &MapName), Added<Map>>,
-  mut removed: RemovedComponents<Map>,
-) {
-  for (ent, name) in map_added.iter() {
-    maps.by_name.insert(name.clone(), ent);
-    maps.by_id.insert(ent, name.clone());
-    cmd.entity(ent).insert(Tiles::default());
-  }
-
-  for ent in removed.read() {
-    if let Some(name) = maps.by_id.remove(&ent) {
-      maps.by_name.remove(&name);
-    }
   }
 }
 
 /// Marker component for maps.
-#[derive(Component, Reflect, Copy, Clone, Default)]
-#[reflect(Component)]
-pub struct Map;
+#[derive(Component, Reflect, Clone, Default, Deref, Hash, Eq, PartialEq)]
+#[reflect(Component, Hash)]
+pub struct Map(pub String);
+
+#[derive(Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Component, Hash)]
+pub struct Transform {
+  pub map: String,
+  pub layer: i8,
+  pub coords: Cubic,
+  pub facing: i8,
+}
+
+#[derive(Component, Reflect, Clone, Deref, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Component, Hash)]
+pub struct GlobalTransform(Transform);
 
 /// Marker component for map tiles.
-/// Must also have a [MapName] and [MapCoords].
-/// Must also have a [Parent] that is a [Map].
 #[derive(Component, Reflect, Copy, Clone, Default)]
 #[reflect(Component)]
 pub struct Tile;
 
-#[derive(Component, Reflect, Copy, Clone, Default)]
-#[reflect(Component)]
-pub struct TileColor(Color);
-
-#[derive(Component, Reflect, Copy, Clone, Default)]
-#[reflect(Component)]
-pub struct TileSymbol(char);
-
-#[derive(WorldQuery)]
-pub struct TileStyle {
-  marker: &'static Tile,
-  pub color: Option<&'static TileColor>,
-  pub symbol: Option<&'static TileSymbol>,
+#[derive(Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Hash)]
+pub struct Symbol {
+  pub text: String,
+  pub style: Style,
 }
 
-/// Either the name of this map (if the entity is tagged with [Map]), or the
-/// name of the map the entity is in.
-#[derive(
-  Component, Reflect, Clone, Deref, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Debug,
-)]
-#[reflect(Component)]
-pub struct MapName(pub String);
-
-/// The location of an entity within its current map.
-#[derive(Component, Reflect, Clone, Copy, Deref, Default, Eq, PartialEq, Hash, Debug)]
+#[derive(Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
 #[reflect(Component, Hash)]
-pub struct MapCoords(pub Cubic);
-
-/// An entity's facing, 0-5, 0 being north and each quantum being 60 deg.
-/// clockwise.
-#[derive(Component, Reflect, Clone, Copy, Deref, Default, Eq, PartialEq, Hash, Debug)]
-#[reflect(Component, Hash)]
-pub struct MapFacing(pub u8);
-
-#[derive(WorldQuery, Debug)]
-#[world_query(mutable)]
-#[world_query(derive(Debug))]
-pub struct PuppetLocation<'a> {
-  entity: Entity,
-  coords: &'a MapCoords,
-  facing: &'a MapFacing,
-  map: &'a MapName,
-  puppet: &'a Player,
-  widget: Option<&'a mut MapWidget>,
-  dig: Option<&'a Dig>,
+pub struct Render {
+  pub icon: Option<Symbol>,
+  pub background: Option<Symbol>,
 }
 
 #[derive(Default, Copy, Clone, Debug, Reflect, Component)]
@@ -257,75 +209,228 @@ pub struct Dig;
 #[reflect(Component)]
 pub struct MapWidget(#[reflect(ignore)] HexMap);
 
-type LocationChanged = Or<(Changed<MapCoords>, Changed<MapFacing>, Changed<MapName>)>;
-
-pub fn player_map_system(
+fn track_maps_system(
   mut cmd: Commands,
-  map_tiles: MapTiles,
-  tile_style: Query<TileStyle>,
-  mut puppet_query: Query<PuppetLocation, LocationChanged>,
-  player_query: Query<(&TelnetOut, Option<&GMCP>)>,
+  mut maps: ResMut<Maps>,
+  map_added: Query<(Entity, &Map), Added<Map>>,
+  mut removed: RemovedComponents<Map>,
 ) {
-  for puppet in puppet_query.iter_mut() {
-    let (out, gmcp) = player_query.get(**puppet.puppet).unwrap();
-    let (_, tiles) = map_tiles.by_name(puppet.map).unwrap();
-    let tile = tiles.by_coords.get(puppet.coords).copied();
-    if let Some(tile) = tile {
-      cmd.entity(puppet.entity).set_parent(tile);
-    } else if puppet.dig.is_some() {
-      let new_tile = cmd.spawn((Tile, *puppet.coords, puppet.map.clone())).id();
-      cmd.entity(puppet.entity).set_parent(new_tile);
-    } else {
-      warn!(?puppet, "moved to an invalid tile");
-      cmd.entity(puppet.entity).remove_parent();
-      out.line("You are off the map!");
-      continue;
+  for (ent, name) in map_added.iter() {
+    maps.by_name.insert((**name).clone(), ent);
+    maps.by_id.insert(ent, (**name).clone());
+    cmd.entity(ent).insert(Entities::default());
+  }
+
+  for ent in removed.read() {
+    if let Some(name) = maps.by_id.remove(&ent) {
+      maps.by_name.remove(&name);
     }
+  }
+}
 
-    let maybe_widget = puppet.widget;
+fn add_global(
+  mut cmd: Commands,
+  query: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
+) {
+  for ent in query.iter() {
+    cmd.entity(ent).insert(GlobalTransform::default());
+  }
+}
 
-    let mut widget = try_opt!(maybe_widget, continue);
+fn propagate_transforms(
+  mut writer: EventWriter<Moved>,
+  mut map_ents: MapEntitiesMut,
+  changed: Query<(Entity, Option<&Parent>), Changed<Transform>>,
+  mut data_query: Query<(&Transform, &mut GlobalTransform)>,
+  children: Query<&Children>,
+) {
+  for (ent, parent) in changed.iter() {
+    let parent_xform = parent.and_then(|p| data_query.get(**p).map(|(_, g)| g.clone()).ok());
+    propagate_transform(
+      &mut writer,
+      &mut map_ents,
+      ent,
+      parent_xform.as_ref(),
+      &mut data_query,
+      &children,
+    );
+  }
+}
 
-    widget.clear();
-    widget.center(**puppet.coords);
-    widget.rotation(-(**puppet.facing as i8));
-    for coord in puppet.coords.spiral(5) {
-      if let Some(id) = tiles.by_coords.get(&MapCoords(coord)).copied() {
-        let mut tile = TuiTile::default();
-        if let Ok(style) = tile_style.get(id) {
-          if let Some(sym) = style.symbol {
-            tile.background().symbol(&format!("{}", sym.0));
-          }
-          if let Some(color) = style.color {
-            tile.background().style(Style::reset().fg(color.0.into()));
+#[derive(Event)]
+pub struct Moved {
+  pub entity: Entity,
+  pub prev: GlobalTransform,
+  pub new: GlobalTransform,
+}
+
+fn propagate_transform(
+  writer: &mut EventWriter<Moved>,
+  map_ents: &mut MapEntitiesMut,
+  ent: Entity,
+  parent_xform: Option<&GlobalTransform>,
+  data: &mut Query<(&Transform, &mut GlobalTransform)>,
+  children: &Query<&Children>,
+) {
+  let parent_xform = if let Ok((xform, mut global)) = data.get_mut(ent) {
+    let xform = if let Some(GlobalTransform(parent)) = parent_xform {
+      Transform {
+        map: parent.map.clone(),
+        layer: parent.layer + xform.layer,
+        coords: (parent.coords + xform.coords).rotate(parent.facing),
+        facing: (xform.facing + parent.facing) % 6,
+      }
+    } else {
+      xform.clone()
+    };
+
+    let prev = std::mem::replace(&mut *global, GlobalTransform(xform));
+
+    writer.send(Moved {
+      entity: ent,
+      prev,
+      new: global.clone(),
+    });
+
+    if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
+      if let Some(ent_vec) = ents.by_id.remove(&ent).and_then(|prev| {
+        ents
+          .by_coords
+          .get_mut(&prev.coords)
+          .and_then(|ls| ls.get_mut(&prev.layer))
+      }) {
+        ent_vec.retain(|e| *e != ent);
+      }
+
+      ents.by_id.insert(ent, (**global).clone());
+      ents
+        .by_coords
+        .entry(global.coords)
+        .or_default()
+        .entry(global.layer)
+        .or_default()
+        .push(ent);
+    };
+    Some(global.clone())
+  } else {
+    None
+  };
+
+  for child in children.get(ent).iter().flat_map(|c| c.iter()) {
+    propagate_transform(
+      writer,
+      map_ents,
+      *child,
+      parent_xform.as_ref(),
+      data,
+      children,
+    );
+  }
+}
+
+fn emit_change_events(
+  map_entities: MapEntities,
+  mut writer: EventWriter<RenderRequest>,
+  mut moved: EventReader<Moved>,
+  widgets: Query<(), With<MapWidget>>,
+  rendered: Query<(), With<Render>>,
+) {
+  for Moved { entity, prev, new } in moved.read() {
+    if widgets.contains(*entity) {
+      writer.send(RenderRequest(*entity));
+    }
+    if rendered.contains(*entity) {
+      for xform in [prev, new] {
+        let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
+        for coords in xform.coords.spiral(8) {
+          for other in map
+            .by_coords
+            .get(&coords)
+            .into_iter()
+            .flat_map(|ls| ls.values())
+            .flat_map(|ents| ents.iter())
+          {
+            if widgets.contains(*other) {
+              writer.send(RenderRequest(*other));
+            }
           }
         }
-        widget.insert(coord, tile);
-      };
+      }
     }
-    widget.tile(**puppet.coords).center().symbol("O");
+  }
+}
+
+#[derive(Event, Debug, Deref)]
+pub struct RenderRequest(pub Entity);
+
+fn render_map_system(
+  map_entities: MapEntities,
+  mut puppet_query: Query<(&GlobalTransform, &Player, &mut MapWidget)>,
+  player_query: Query<&TelnetOut, With<GMCP>>,
+  render_query: Query<&Render>,
+  mut render_requests: EventReader<RenderRequest>,
+) {
+  let to_render = render_requests.read().map(|e| e.0).collect::<HashSet<_>>();
+
+  for entity in to_render {
+    let (xform, player, mut widget) = try_opt!(puppet_query.get_mut(entity).ok(), continue);
+    let out = try_opt!(player_query.get(player.0).ok(), continue);
+    let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
+
+    widget.clear();
+    widget.center(xform.coords + Cubic(0, -1, 1).rotate(xform.facing) * 3);
+    widget.rotation(-(xform.facing));
+    for coord in xform.coords.spiral(8) {
+      if !is_visible(xform, coord) {
+        continue;
+      }
+      let mut tile = TuiTile::default();
+      for render in map
+        .iter_at(&coord)
+        .filter_map(|(_, e)| render_query.get(e).ok())
+      {
+        if let Some(bg) = render.background.as_ref() {
+          tile.background().symbol(&bg.text).style(bg.style.into());
+        }
+        if let Some(fg) = render.icon.as_ref() {
+          tile.center().symbol(&fg.text).style(fg.style.into());
+        }
+      }
+      widget.insert(coord, tile);
+    }
     let mut renderer = Ansi::default();
     let map_area = Rect {
-      width: 40,
+      width: 55,
       height: 23,
       x: 0,
       y: 0,
     };
     renderer.resize(map_area);
     widget.render(map_area, &mut renderer);
-    if gmcp.is_some() {
-      let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-      write!(encoder, "{}", renderer).unwrap();
-      let bytes = encoder.finish().unwrap();
-      let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
-      negotiate!(
-        out,
-        sub,
-        GMCP,
-        format!("map {:?}", encoded).as_bytes().into()
-      );
-    } else {
-      out.line(format!("Map:\n{}", renderer));
-    }
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    write!(encoder, "{}", renderer).unwrap();
+    let bytes = encoder.finish().unwrap();
+    let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
+    negotiate!(
+      out,
+      sub,
+      GMCP,
+      format!("map {:?}", encoded).as_bytes().into()
+    );
+  }
+}
+
+fn is_visible(xform: &GlobalTransform, coord: Cubic) -> bool {
+  let dir = (coord - xform.coords)
+    .rotate(-(xform.facing))
+    .direction()
+    .abs();
+
+  let dist = xform.coords.distance(coord);
+
+  if dir >= std::f32::consts::FRAC_PI_2 {
+    dist <= 8
+  } else {
+    dist <= 2
   }
 }

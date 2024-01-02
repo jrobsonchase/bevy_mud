@@ -7,15 +7,20 @@ use std::{
 };
 
 use bevy::prelude::*;
+use bitflags::bitflags;
 use ratatui::{
   buffer::Cell,
   prelude::{
     Color as TuiColor,
     Rect,
-    Style,
+    Style as TuiStyle,
     *,
   },
   widgets::Widget,
+};
+use serde::{
+  Deserialize,
+  Serialize,
 };
 
 use crate::coords::Cubic;
@@ -53,7 +58,28 @@ pub const EDGE_NEIGHBORS: [&[Cubic]; 8] = [
   &[Cubic(0, 1, -1), Cubic(1, 0, -1)],
 ];
 
-#[derive(Copy, Clone, Reflect, Default)]
+#[derive(
+  Reflect, Default, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize, Deref, Debug,
+)]
+#[reflect(Hash, Debug)]
+pub struct Modifier(u16);
+
+bitflags! {
+  impl Modifier: u16 {
+      const BOLD              = 0b0000_0000_0001;
+      const DIM               = 0b0000_0000_0010;
+      const ITALIC            = 0b0000_0000_0100;
+      const UNDERLINED        = 0b0000_0000_1000;
+      const SLOW_BLINK        = 0b0000_0001_0000;
+      const RAPID_BLINK       = 0b0000_0010_0000;
+      const REVERSED          = 0b0000_0100_0000;
+      const HIDDEN            = 0b0000_1000_0000;
+      const CROSSED_OUT       = 0b0001_0000_0000;
+  }
+}
+
+#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Debug, Hash)]
 pub enum Color {
   #[default]
   Reset,
@@ -103,6 +129,33 @@ impl From<Color> for TuiColor {
   }
 }
 
+#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug)]
+#[reflect(Debug, Hash)]
+pub struct Style {
+  pub fg: Option<Color>,
+  pub bg: Option<Color>,
+  pub add_modifier: Modifier,
+  pub sub_modifier: Modifier,
+}
+
+impl From<Style> for TuiStyle {
+  fn from(value: Style) -> Self {
+    let mut style = TuiStyle::default();
+    if let Some(fg) = value.fg {
+      style.fg = Some(fg.into());
+    }
+    if let Some(bg) = value.bg {
+      style.bg = Some(bg.into());
+    }
+    style.add_modifier =
+      ratatui::style::Modifier::from_bits(*value.add_modifier).unwrap_or_default();
+    style.sub_modifier =
+      ratatui::style::Modifier::from_bits(*value.sub_modifier).unwrap_or_default();
+
+    style
+  }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Tile {
   // Edge cells with weights
@@ -146,7 +199,7 @@ impl<'a> CellBuilder<'a> {
     self.cell.take();
   }
 
-  pub fn style(&mut self, style: Style) -> &mut Self {
+  pub fn style(&mut self, style: TuiStyle) -> &mut Self {
     self
       .cell
       .get_or_insert_with(Default::default)
@@ -176,7 +229,7 @@ impl<'a> WeightedCellBuilder<'a> {
     self
   }
 
-  pub fn style(&mut self, style: Style) -> &mut Self {
+  pub fn style(&mut self, style: TuiStyle) -> &mut Self {
     self
       .cell
       .get_or_insert_with(|| (Cell::default(), 1.0))
@@ -364,7 +417,7 @@ impl<'a> Widget for &'a HexMap {
               } else {
                 EDGES[i].0
               };
-              buf.set_string(x, y, c, Style::reset().fg(TuiColor::DarkGray));
+              buf.set_string(x, y, c, TuiStyle::reset().fg(TuiColor::DarkGray));
             } else {
               let mut neighbors = tile.background.iter().collect::<Vec<_>>();
               for bg in EDGE_NEIGHBORS[i]

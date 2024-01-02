@@ -1,3 +1,5 @@
+use tracing::warn;
+
 use super::{
   CommandArgs,
   WorldCommand,
@@ -5,11 +7,11 @@ use super::{
 use crate::{
   account::Session,
   character::Puppet,
-  coords::Cubic,
-  map::{
-    MapCoords,
-    MapFacing,
+  coords::{
+    Cubic,
+    DIRECTIONS,
   },
+  map::Transform,
   net::TelnetOut,
 };
 
@@ -39,78 +41,74 @@ fn who(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   }))
 }
 
-fn turn_direction(clockwise: bool) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
+fn turn_direction(off: i8) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
   move |args| {
     Ok(Box::new(move |world| {
-      let puppet = world.get::<Puppet>(args.caller.unwrap()).unwrap();
-      let current_facing = world.get::<MapFacing>(**puppet).unwrap();
-      let new_facing = if clockwise {
-        (**current_facing + 1) % 6
-      } else if **current_facing > 0 {
-        **current_facing - 1
-      } else {
-        5
-      };
-      world.entity_mut(**puppet).insert(MapFacing(new_facing));
+      let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
+      let mut current_xform = try_opt!(world.get_mut::<Transform>(entity), {
+        warn!(?entity, "attempt to turn locationless entity");
+        return;
+      });
+      current_xform.facing += off;
+      current_xform.facing %= 6;
     }))
   }
 }
 
-fn move_forward(fwd: bool) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
+fn move_relative(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
   move |args| {
     Ok(Box::new(move |world| {
-      let puppet = world.get::<Puppet>(args.caller.unwrap()).unwrap();
-      let current_coords = world.get::<MapCoords>(**puppet).unwrap();
-      let current_facing = world.get::<MapFacing>(**puppet).unwrap();
-      let offset = if fwd {
-        N.rotate(**current_facing as _)
-      } else {
-        S.rotate(**current_facing as _)
-      };
-      let dest_coords = **current_coords + offset;
-      world.entity_mut(**puppet).insert(MapCoords(dest_coords));
+      let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
+      let mut xform = try_opt!(world.get_mut::<Transform>(entity), {
+        warn!(?entity, "attempt to move locationless entity");
+        return;
+      });
+      let offset = DIRECTIONS[dir].rotate(xform.facing);
+      xform.coords += offset;
     }))
   }
 }
 
-fn move_direction(offset: Cubic) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
+fn move_absolute(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
   move |args| {
     Ok(Box::new(move |world| {
-      let puppet = world.get::<Puppet>(args.caller.unwrap()).unwrap();
-      let current_coords = world.get::<MapCoords>(**puppet).unwrap();
-      let dest_coords = **current_coords + offset;
-      world.entity_mut(**puppet).insert(MapCoords(dest_coords));
+      let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
+      let mut xform = try_opt!(world.get_mut::<Transform>(entity), {
+        warn!(?entity, "attempt to move locationless entity");
+        return;
+      });
+      xform.coords += DIRECTIONS[dir];
     }))
   }
 }
 
-const N: Cubic = Cubic(0, -1, 1);
-const NE: Cubic = Cubic(1, -1, 0);
-const SE: Cubic = Cubic(1, 0, -1);
-const S: Cubic = Cubic(0, 1, -1);
-const SW: Cubic = Cubic(-1, 1, 0);
-const NW: Cubic = Cubic(-1, 0, 1);
+const N: usize = 2;
+const NE: usize = 1;
+const SE: usize = 0;
+const S: usize = 5;
+const SW: usize = 4;
+const NW: usize = 3;
 
 command_set! { PlayerCommands =>
   ("who", who),
-  ("forward", move_forward(true)),
-  ("w", move_forward(true)),
-  ("backward", move_forward(false)),
-  ("s", move_forward(false)),
-  ("right", turn_direction(true)),
-  ("d", turn_direction(true)),
-  ("left", turn_direction(false)),
-  ("a", turn_direction(false)),
-  ("north", move_direction(N)),
-  ("northeast", move_direction(NE)),
-  ("southeast", move_direction(SE)),
-  ("south", move_direction(S)),
-  ("southwest", move_direction(SW)),
-  ("northwest", move_direction(NW)),
-  ("n", move_direction(N)),
-  ("ne", move_direction(NE)),
-  ("se", move_direction(SE)),
-  ("s", move_direction(S)),
-  ("sw", move_direction(SW)),
-  ("nw", move_direction(NW)),
+  ("forward", move_relative(2)),
+  ("forwardright", move_relative(1)),
+  ("forwardleft", move_relative(3)),
+  ("backward", move_relative(5)),
+  ("backwardright", move_relative(0)),
+  ("backwardleft", move_relative(4)),
+  ("right", turn_direction(1)),
+  ("left", turn_direction(-1)),
+  ("north", move_absolute(N)),
+  ("northeast", move_absolute(NE)),
+  ("southeast", move_absolute(SE)),
+  ("south", move_absolute(S)),
+  ("southwest", move_absolute(SW)),
+  ("northwest", move_absolute(NW)),
+  ("n", move_absolute(N)),
+  ("ne", move_absolute(NE)),
+  ("se", move_absolute(SE)),
+  ("s", move_absolute(S)),
+  ("sw", move_absolute(SW)),
+  ("nw", move_absolute(NW)),
 }

@@ -7,7 +7,6 @@ CREATE TABLE user (
 CREATE TABLE character (
 	id integer not null primary key,
 	user_id integer not null references user(id),
-	name text not null unique,
 	entity integer not null references entity(id)
 ) strict;
 CREATE TABLE entity (

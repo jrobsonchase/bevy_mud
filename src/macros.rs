@@ -18,8 +18,9 @@ macro_rules! extract {
 #[macro_export]
 macro_rules! try_opt {
   ($opt:expr, $block:expr $(,)*) => {{
+    let opt = $opt;
     #[allow(clippy::redundant_closure_call)]
-    let res = (|| $opt)();
+    let res = (move || opt)();
     match res {
       Some(v) => v,
       None => $block,
@@ -30,8 +31,9 @@ macro_rules! try_opt {
 #[macro_export]
 macro_rules! try_res {
   ($opt:expr, $e:tt => $block:expr $(,)*) => {{
+    let opt = $opt;
     #[allow(clippy::redundant_closure_call)]
-    let res = (|| $opt)();
+    let res = (move || opt)();
     match res {
       Ok(v) => v,
       Err($e) => $block,

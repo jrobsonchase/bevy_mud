@@ -10,15 +10,23 @@ use bevy::{
 };
 
 use crate::{
+  ascii_map::widget::Style,
   character::{
+    Character,
     Player,
     Puppet,
   },
   db::Db,
+  map::{
+    Render,
+    Symbol,
+  },
   net::*,
   savestate::{
     DbEntity,
     Load,
+    Persist,
+    Save,
   },
   tasks::EntityCommandsExt as _,
 };
@@ -168,8 +176,10 @@ fn login_system(
                     let character = world.spawn((res, Player(entity), Load)).id();
                     world.entity_mut(entity).insert(Puppet(character));
                   },
-                  move |error, entity, _world| {
-                    warn!(?entity, %error, "failed to find character");
+                  move |error, entity, world| {
+                    warn!(?entity, %error, "failed to find character, creating a blank one");
+                    let character = world.spawn(Player(entity)).id();
+                    world.entity_mut(entity).insert(Puppet(character));
                   },
                 );
             } else {
@@ -217,27 +227,48 @@ fn login_system(
           async move {
             let hashed = hash(confirm, 4)?;
 
-            let res = sqlx::query!(
+            let user_res = sqlx::query!(
               "INSERT INTO user (name, password) VALUES (?, ?)",
               name,
               hashed
             )
             .execute(&*db)
             .await?;
-            Ok((name, res.last_insert_rowid()))
+            let entity_res = sqlx::query!("INSERT INTO entity (parent) VALUES (NULL)")
+              .execute(&*db)
+              .await?;
+            let user_id = user_res.last_insert_rowid();
+            let entity_id = entity_res.last_insert_rowid();
+            sqlx::query!(
+              "INSERT INTO character (user_id, entity) VALUES (?, ?)",
+              user_id,
+              entity_id,
+            )
+            .execute(&*db)
+            .await?;
+            Ok((name, user_id, entity_id))
           },
-          move |(name, id), entity, world| {
+          move |(name, user_id, character_id), entity, world| {
             if let Some(out) = world.entity(entity).get::<TelnetOut>() {
               out.line(" done!");
             }
-            world
-              .entity_mut(entity)
-              .remove::<LoginState>()
-              .insert(Session {
+            let character = world
+              .spawn((
+                Persist,
+                DbEntity(Entity::from_bits(character_id as _)),
+                Player(entity),
+                Character,
+                Save,
+              ))
+              .id();
+            world.entity_mut(entity).remove::<LoginState>().insert((
+              Session {
                 username: name,
-                id,
+                id: user_id,
                 admin: true,
-              });
+              },
+              Puppet(character),
+            ));
           },
           move |err, entity, world| {
             if let Some(out) = world.entity(entity).get::<TelnetOut>() {

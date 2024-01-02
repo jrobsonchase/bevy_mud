@@ -57,6 +57,46 @@ fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     .ok_or_else(|| anyhow!("missing caller"))
 }
 
+fn parent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
+  let cmd_args = args
+    .args
+    .split(' ')
+    .map(|s| s.trim())
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>();
+
+  let usage = || anyhow!("Usage: @parent <entity id> [<new parent id>]");
+
+  let ent = Entity::from_bits(
+    cmd_args
+      .first()
+      .ok_or_else(usage)
+      .and_then(|s| Ok(s.parse::<u64>()?))?,
+  );
+  let parent = cmd_args
+    .get(1)
+    .map(|s| s.parse::<u64>())
+    .transpose()?
+    .map(Entity::from_bits);
+
+  Ok(Box::new(move |world: &mut World| {
+    let out = world
+      .get::<TelnetOut>(args.caller.unwrap())
+      .unwrap()
+      .clone();
+    let mut entity = try_opt!(world.get_entity_mut(ent), {
+      out.line(format!("No such entity: {}", ent.to_bits()));
+      return;
+    });
+    if let Some(parent) = parent {
+      entity.set_parent(parent);
+    } else {
+      entity.remove_parent();
+    }
+    out.line("Success!");
+  }))
+}
+
 fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let cmd_args = args
     .args
@@ -93,7 +133,7 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .ok_or_else(|| anyhow!("No such component: '{}'", component))
       .and_then(|info| {
         let de = TypedReflectDeserializer::new(info, &reg);
-        let mut seed = ron::Deserializer::from_str(&data).unwrap();
+        let mut seed = ron::Deserializer::from_str(&data)?;
         Ok(de.deserialize(&mut seed)?)
       });
     let component = try_res!(res, err => {
@@ -208,4 +248,5 @@ command_set! { DebugCommands =>
   ("@remove", remove),
   ("@spawn", spawn),
   ("@despawn", despawn),
+  ("@parent", parent),
 }

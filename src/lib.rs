@@ -11,6 +11,7 @@ pub mod util;
 pub mod account;
 pub mod character;
 pub mod command;
+pub mod item;
 
 pub mod coords;
 pub mod core;
