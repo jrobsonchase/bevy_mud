@@ -2,4 +2,5 @@
 /target
 db.sqlite*
 /.env
+/tintin/map.txt
 

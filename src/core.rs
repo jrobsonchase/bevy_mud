@@ -20,7 +20,13 @@ use tracing_subscriber::{
 };
 
 use crate::{
+  account::AccountPlugin,
+  action::ActionPlugin,
+  character::CharacterPlugin,
+  command::GameCommandsPlugin,
   framerate::LogFrameRatePlugin,
+  map::MapPlugin,
+  movement::MovementPlugin,
   net::TelnetPlugin,
   savestate::SaveStatePlugin,
   signal::{
@@ -35,6 +41,13 @@ pub enum CantonStartup {
   System,
   Io,
   World,
+}
+
+#[derive(SystemSet, Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum CantonUpdate {
+  Input,
+  Resolve,
+  Output,
 }
 
 #[derive(Default)]
@@ -54,6 +67,15 @@ impl Plugin for CorePlugin {
         CantonStartup::System,
         CantonStartup::Io,
         CantonStartup::World,
+      )
+        .chain(),
+    );
+    app.configure_sets(
+      Update,
+      (
+        CantonUpdate::Input,
+        CantonUpdate::Resolve,
+        CantonUpdate::Output,
       )
         .chain(),
     );
@@ -78,6 +100,13 @@ impl Plugin for CorePlugin {
       SaveStatePlugin,
       TelnetPlugin,
     ));
+
+    app.add_plugins(CharacterPlugin);
+    app.add_plugins(MapPlugin);
+    app.add_plugins(ActionPlugin);
+    app.add_plugins(AccountPlugin);
+    app.add_plugins(GameCommandsPlugin);
+    app.add_plugins(MovementPlugin);
   }
 }
 

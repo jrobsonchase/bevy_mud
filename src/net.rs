@@ -97,8 +97,7 @@ impl Plugin for TelnetPlugin {
       .register_type::<ClientConn>()
       .add_systems(Startup, start_listener.in_set(CantonStartup::Io))
       .add_systems(First, new_conns)
-      .add_systems(First, TelnetIn::update_system.after(new_conns))
-      .add_systems(First, telnet_handler.after(TelnetIn::update_system))
+      .add_systems(First, telnet_handler)
       .add_systems(Last, reap_conns)
       .add_systems(Last, print_reaped_conns.after(reap_conns));
   }
@@ -233,11 +232,6 @@ impl TelnetIn {
       closed: false,
     }
   }
-  fn update_system(mut query: Query<&mut TelnetIn>) {
-    for mut telnet in query.iter_mut() {
-      telnet.update();
-    }
-  }
   fn update(&mut self) {
     if self.peek.is_some() {
       return;
@@ -257,6 +251,7 @@ impl TelnetIn {
   where
     F: FnOnce(tellem::Event) -> Result<T, tellem::Event>,
   {
+    self.update();
     let event = self.peek.take()?;
     match f(event) {
       Ok(v) => Some(v),

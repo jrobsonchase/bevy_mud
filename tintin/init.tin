@@ -22,7 +22,7 @@
 
 #EVENT {IAC SB GMCP map IAC SE}
 {
-	#script map {echo %0 | base64 -d | zcat};
+	#script map {echo %0 | base64 -d | zstdcat};
 	.drawmap
 }
 

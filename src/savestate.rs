@@ -316,7 +316,6 @@ fn delete(
   debug!(?entities, "attempting to delete entities");
   try_res!(rt.block_on(db.to_owned().delete_entities(entities)), error => {
     warn!(?error, "failed to delete entities");
-    panic!();
     return;
   });
   for entity in query.iter() {

@@ -60,26 +60,27 @@ pub fn game_commands_system(world: &mut World) {
   let mut query = world.query::<(Entity, &mut TelnetIn, &TelnetOut, &CommandSet)>();
   let mut cmds = vec![];
   for (entity, mut telnet_in, telnet_out, cmdset) in query.iter_mut(world) {
-    let line = try_opt!(telnet_in.next_line(), continue);
-    let (cmd_str, args) = line
-      .split_once(' ')
-      .map(|(cmd, rest)| (cmd.trim(), rest.trim()))
-      .unwrap_or_else(|| (line.as_str().trim(), ""));
-    match cmdset
-      .lookup(cmd_str)
-      .ok_or_else(|| anyhow::format_err!("What?"))
-      .and_then(|cmd| {
-        cmd.build(CommandArgs {
-          caller: Some(entity),
-          owner: Some(entity),
-          matched: cmd_str,
-          args,
-        })
-      }) {
-      Ok(cmd) => cmds.push((entity, cmd)),
-      Err(err) => {
-        telnet_out.line(format!("{}", err)).string("> ");
-        command!(telnet_out, GA);
+    while let Some(line) = telnet_in.next_line() {
+      let (cmd_str, args) = line
+        .split_once(' ')
+        .map(|(cmd, rest)| (cmd.trim(), rest.trim()))
+        .unwrap_or_else(|| (line.as_str().trim(), ""));
+      match cmdset
+        .lookup(cmd_str)
+        .ok_or_else(|| anyhow::format_err!("What?"))
+        .and_then(|cmd| {
+          cmd.build(CommandArgs {
+            caller: Some(entity),
+            owner: Some(entity),
+            matched: cmd_str,
+            args,
+          })
+        }) {
+        Ok(cmd) => cmds.push((entity, cmd)),
+        Err(err) => {
+          telnet_out.line(format!("{}", err)).string("> ");
+          command!(telnet_out, GA);
+        }
       }
     }
   }

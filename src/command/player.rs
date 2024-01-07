@@ -6,12 +6,13 @@ use super::{
 };
 use crate::{
   account::Session,
-  character::Puppet,
-  coords::{
-    Cubic,
-    DIRECTIONS,
+  action::{
+    Queue,
+    StopEvent,
   },
-  map::Transform,
+  character::Puppet,
+  coords::DIRECTIONS,
+  movement::MoveAction,
   net::TelnetOut,
 };
 
@@ -45,12 +46,13 @@ fn turn_direction(off: i8) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComman
   move |args| {
     Ok(Box::new(move |world| {
       let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
-      let mut current_xform = try_opt!(world.get_mut::<Transform>(entity), {
-        warn!(?entity, "attempt to turn locationless entity");
+      let mut action_queue = try_opt!(world.get_mut::<Queue>(entity), {
+        warn!(?entity, "entity has no queue!");
         return;
       });
-      current_xform.facing += off;
-      current_xform.facing %= 6;
+      action_queue.push_back(Box::new(MoveAction::Turn(off)));
+      let out = try_opt!(world.get::<TelnetOut>(args.caller.unwrap()), return);
+      out.line("Adding movement to queue.");
     }))
   }
 }
@@ -59,12 +61,13 @@ fn move_relative(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComm
   move |args| {
     Ok(Box::new(move |world| {
       let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
-      let mut xform = try_opt!(world.get_mut::<Transform>(entity), {
-        warn!(?entity, "attempt to move locationless entity");
+      let mut queue = try_opt!(world.get_mut::<Queue>(entity), {
+        warn!(?entity, "entity has no queue!");
         return;
       });
-      let offset = DIRECTIONS[dir].rotate(xform.facing);
-      xform.coords += offset;
+      queue.push_back(Box::new(MoveAction::MoveRelative(DIRECTIONS[dir])));
+      let out = try_opt!(world.get::<TelnetOut>(args.caller.unwrap()), return);
+      out.line("Adding movement to queue.");
     }))
   }
 }
@@ -73,13 +76,32 @@ fn move_absolute(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComm
   move |args| {
     Ok(Box::new(move |world| {
       let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
-      let mut xform = try_opt!(world.get_mut::<Transform>(entity), {
-        warn!(?entity, "attempt to move locationless entity");
+      let mut queue = try_opt!(world.get_mut::<Queue>(entity), {
+        warn!(?entity, "entity has no queue!");
         return;
       });
-      xform.coords += DIRECTIONS[dir];
+      queue.push_back(Box::new(MoveAction::MoveAbsolute(DIRECTIONS[dir])));
+      let out = try_opt!(world.get::<TelnetOut>(args.caller.unwrap()), return);
+      out.line("Adding movement to queue.");
     }))
   }
+}
+
+fn stop(args: CommandArgs) -> anyhow::Result<WorldCommand> {
+  Ok(Box::new(move |world| {
+    let mut puppet = try_opt!(
+      args
+        .caller
+        .and_then(|ent| world.get::<Puppet>(ent).copied())
+        .and_then(|ent| world.get_entity_mut(ent.0)),
+      return
+    );
+    if let Some(mut queue) = puppet.get_mut::<Queue>() {
+      queue.clear();
+    }
+    let id = puppet.id();
+    world.send_event(StopEvent(id));
+  }))
 }
 
 const N: usize = 2;
@@ -111,4 +133,5 @@ command_set! { PlayerCommands =>
   ("s", move_absolute(S)),
   ("sw", move_absolute(SW)),
   ("nw", move_absolute(NW)),
+  ("stop", stop),
 }

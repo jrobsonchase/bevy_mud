@@ -6,28 +6,17 @@
 
 use std::{
   collections::BTreeMap,
-  f32::consts::{
-    FRAC_PI_3,
-    PI,
-  },
   io::Write,
 };
 
 use base64::Engine as _;
 use bevy::{
-  ecs::{
-    query::WorldQuery,
-    system::SystemParam,
-  },
+  ecs::system::SystemParam,
   prelude::*,
   utils::{
     hashbrown::HashSet,
     HashMap,
   },
-};
-use flate2::{
-  write::GzEncoder,
-  Compression,
 };
 use ratatui::{
   prelude::Rect,
@@ -53,6 +42,8 @@ use crate::{
   },
   savestate::SaveExt,
 };
+
+const MAP_RADIUS: u64 = 8;
 
 pub struct MapPlugin;
 
@@ -272,7 +263,7 @@ fn propagate_transform(
   data: &mut Query<(&Transform, &mut GlobalTransform)>,
   children: &Query<&Children>,
 ) {
-  let parent_xform = if let Ok((xform, mut global)) = data.get_mut(ent) {
+  let my_xform = if let Ok((xform, mut global)) = data.get_mut(ent) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
       Transform {
         map: parent.map.clone(),
@@ -286,13 +277,7 @@ fn propagate_transform(
 
     let prev = std::mem::replace(&mut *global, GlobalTransform(xform));
 
-    writer.send(Moved {
-      entity: ent,
-      prev,
-      new: global.clone(),
-    });
-
-    if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
+    if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
       if let Some(ent_vec) = ents.by_id.remove(&ent).and_then(|prev| {
         ents
           .by_coords
@@ -301,7 +286,9 @@ fn propagate_transform(
       }) {
         ent_vec.retain(|e| *e != ent);
       }
+    }
 
+    if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
       ents.by_id.insert(ent, (**global).clone());
       ents
         .by_coords
@@ -311,20 +298,22 @@ fn propagate_transform(
         .or_default()
         .push(ent);
     };
+
+    if prev != *global {
+      writer.send(Moved {
+        entity: ent,
+        prev,
+        new: global.clone(),
+      });
+    }
+
     Some(global.clone())
   } else {
     None
   };
 
   for child in children.get(ent).iter().flat_map(|c| c.iter()) {
-    propagate_transform(
-      writer,
-      map_ents,
-      *child,
-      parent_xform.as_ref(),
-      data,
-      children,
-    );
+    propagate_transform(writer, map_ents, *child, my_xform.as_ref(), data, children);
   }
 }
 
@@ -342,7 +331,7 @@ fn emit_change_events(
     if rendered.contains(*entity) {
       for xform in [prev, new] {
         let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
-        for coords in xform.coords.spiral(8) {
+        for coords in xform.coords.spiral(MAP_RADIUS) {
           for other in map
             .by_coords
             .get(&coords)
@@ -365,59 +354,76 @@ pub struct RenderRequest(pub Entity);
 
 fn render_map_system(
   map_entities: MapEntities,
-  mut puppet_query: Query<(&GlobalTransform, &Player, &mut MapWidget)>,
+  mut puppet_query: Query<(Entity, &GlobalTransform, &Player, &mut MapWidget)>,
   player_query: Query<&TelnetOut, With<GMCP>>,
   render_query: Query<&Render>,
   mut render_requests: EventReader<RenderRequest>,
 ) {
   let to_render = render_requests.read().map(|e| e.0).collect::<HashSet<_>>();
 
-  for entity in to_render {
-    let (xform, player, mut widget) = try_opt!(puppet_query.get_mut(entity).ok(), continue);
-    let out = try_opt!(player_query.get(player.0).ok(), continue);
-    let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
-
-    widget.clear();
-    widget.center(xform.coords + Cubic(0, -1, 1).rotate(xform.facing) * 3);
-    widget.rotation(-(xform.facing));
-    for coord in xform.coords.spiral(8) {
-      if !is_visible(xform, coord) {
-        continue;
-      }
-      let mut tile = TuiTile::default();
-      for render in map
-        .iter_at(&coord)
-        .filter_map(|(_, e)| render_query.get(e).ok())
-      {
-        if let Some(bg) = render.background.as_ref() {
-          tile.background().symbol(&bg.text).style(bg.style.into());
-        }
-        if let Some(fg) = render.icon.as_ref() {
-          tile.center().symbol(&fg.text).style(fg.style.into());
-        }
-      }
-      widget.insert(coord, tile);
-    }
-    let mut renderer = Ansi::default();
-    let map_area = Rect {
-      width: 55,
-      height: 23,
-      x: 0,
-      y: 0,
-    };
-    renderer.resize(map_area);
-    widget.render(map_area, &mut renderer);
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    write!(encoder, "{}", renderer).unwrap();
-    let bytes = encoder.finish().unwrap();
-    let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
-    negotiate!(
-      out,
-      sub,
-      GMCP,
-      format!("map {:?}", encoded).as_bytes().into()
+  if bevy::tasks::ComputeTaskPool::get().thread_num() <= 1 {
+    warn!(
+      par = bevy::tasks::available_parallelism(),
+      "only one thread??"
     );
   }
+
+  puppet_query
+    .par_iter_mut()
+    .for_each(|(entity, xform, player, mut widget)| {
+      if !to_render.contains(&entity) {
+        return;
+      }
+
+      let out = try_opt!(player_query.get(player.0).ok(), return);
+      let (_, map) = try_opt!(map_entities.by_name(&xform.map), return);
+
+      widget.clear();
+      widget.center(xform.coords + Cubic(0, -1, 1).rotate(xform.facing) * 3);
+      widget.rotation(-(xform.facing));
+      for coord in xform.coords.spiral(MAP_RADIUS) {
+        if !is_visible(xform, coord) {
+          continue;
+        }
+        let mut tile = TuiTile::default();
+        for render in map
+          .iter_at(&coord)
+          .filter_map(|(_, e)| render_query.get(e).ok())
+        {
+          if let Some(bg) = render.background.as_ref() {
+            tile.background().symbol(&bg.text).style(bg.style.into());
+          }
+          if let Some(fg) = render.icon.as_ref() {
+            tile.center().symbol(&fg.text).style(fg.style.into());
+          }
+        }
+        widget.insert(coord, tile);
+      }
+      let mut renderer = Ansi::default();
+      let map_area = Rect {
+        width: 55,
+        height: 23,
+        x: 0,
+        y: 0,
+      };
+      renderer.resize(map_area);
+      widget.render(map_area, &mut renderer);
+      let out = out.clone();
+      bevy::tasks::AsyncComputeTaskPool::get()
+        .spawn(async move {
+          let mut compressor = zstd::Encoder::new(Vec::new(), 0).unwrap();
+          write!(compressor, "{}", renderer).unwrap();
+          let bytes = compressor.finish().unwrap();
+          let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
+          negotiate!(
+            out,
+            sub,
+            GMCP,
+            format!("map {:?}", encoded).as_bytes().into()
+          );
+        })
+        .detach();
+    });
 }
 
 fn is_visible(xform: &GlobalTransform, coord: Cubic) -> bool {
@@ -429,8 +435,8 @@ fn is_visible(xform: &GlobalTransform, coord: Cubic) -> bool {
   let dist = xform.coords.distance(coord);
 
   if dir >= std::f32::consts::FRAC_PI_2 {
-    dist <= 8
+    dist <= MAP_RADIUS as _
   } else {
-    dist <= 2
+    dist <= (MAP_RADIUS / 4) as _
   }
 }

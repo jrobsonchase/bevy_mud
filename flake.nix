@@ -115,12 +115,12 @@
             rust-analyzer-nightly
             fix-n-fmt
             (tracy.overrideAttrs (attrs: rec {
-              version = "0.9.1";
+              version = "0.10";
               src = fetchFromGitHub {
                 owner = "wolfpld";
                 repo = "tracy";
                 rev = "v${version}";
-                sha256 = "sha256-K1lQNRS8+ju9HyKNVXtHqslrPWcPgazzTitvwkIO3P4=";
+                sha256 = "sha256-DN1ExvQ5wcIUyhMAfiakFbZkDsx+5l8VMtYGvSdboPA=";
               };
             }))
             tintin
@@ -129,6 +129,7 @@
             luajitPackages.tl
             luajitPackages.lua
             jaeger
+            lz4
             lldb
             # Wrap sqlite3 in a shell script that enables foreign keys by default.
             (symlinkJoin {

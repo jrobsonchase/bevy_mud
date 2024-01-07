@@ -72,7 +72,7 @@ impl Cubic {
   }
   pub fn direction(self) -> f32 {
     let (x, y) = self.square();
-    (x as f32).atan2(y as f32)
+    x.atan2(y)
   }
   pub fn neighbor(self, i: u8) -> Option<Cubic> {
     DIRECTIONS.get(i as usize).copied().map(move |d| d + self)

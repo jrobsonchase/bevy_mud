@@ -10,6 +10,7 @@ default-run = "canton"
 [dependencies]
 anyhow = "1.0.75"
 bevy = { version = "0.12", features = [
+	"multi-threaded",
 	"bevy_scene",
 	"bevy_asset",
 	"file_watcher",
@@ -52,6 +53,8 @@ radix_trie = "0.2.1"
 flate2 = "1.0.28"
 base64 = "0.21.5"
 bitflags = "2.4.1"
+lz4 = "1.24.0"
+zstd = "0.13.0"
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]

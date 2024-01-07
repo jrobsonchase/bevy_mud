@@ -10,17 +10,12 @@ use bevy::{
 };
 
 use crate::{
-  ascii_map::widget::Style,
   character::{
-    Character,
+    CharacterBundle,
     Player,
     Puppet,
   },
   db::Db,
-  map::{
-    Render,
-    Symbol,
-  },
   net::*,
   savestate::{
     DbEntity,
@@ -173,12 +168,16 @@ fn login_system(
                     Ok(DbEntity::from_bits(row.entity as _))
                   },
                   move |res, entity, world| {
-                    let character = world.spawn((res, Player(entity), Load)).id();
+                    let character = world
+                      .spawn((CharacterBundle::default(), res, Player(entity), Load))
+                      .id();
                     world.entity_mut(entity).insert(Puppet(character));
                   },
                   move |error, entity, world| {
                     warn!(?entity, %error, "failed to find character, creating a blank one");
-                    let character = world.spawn(Player(entity)).id();
+                    let character = world
+                      .spawn((CharacterBundle::default(), Player(entity)))
+                      .id();
                     world.entity_mut(entity).insert(Puppet(character));
                   },
                 );
@@ -207,6 +206,7 @@ fn login_system(
           password,
         };
       }
+
       LoginState::NewUserConfirm { name, password } => {
         let confirm = try_opt!(input.next_line(), continue);
         if *password != confirm {
@@ -254,10 +254,10 @@ fn login_system(
             }
             let character = world
               .spawn((
+                CharacterBundle::default(),
                 Persist,
                 DbEntity(Entity::from_bits(character_id as _)),
                 Player(entity),
-                Character,
                 Save,
               ))
               .id();

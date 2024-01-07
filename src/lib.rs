@@ -9,9 +9,12 @@ pub mod net;
 pub mod util;
 
 pub mod account;
+pub mod action;
 pub mod character;
 pub mod command;
 pub mod item;
+pub mod movement;
+pub mod output;
 
 pub mod coords;
 pub mod core;

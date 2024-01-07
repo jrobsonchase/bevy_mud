@@ -3,9 +3,13 @@ use bevy::{
   utils::HashSet,
 };
 
-use crate::savestate::{
-  SaveExt,
-  Unload,
+use crate::{
+  action::Queue,
+  movement::Speed,
+  savestate::{
+    SaveExt,
+    Unload,
+  },
 };
 
 /// Pointer from a character to the player who controls it.
@@ -59,6 +63,13 @@ impl Plugin for CharacterPlugin {
     );
     app.add_systems(Update, despawn_system);
   }
+}
+
+#[derive(Bundle, Default)]
+pub struct CharacterBundle {
+  character: Character,
+  queue: Queue,
+  speed: Speed,
 }
 
 fn despawn_system(

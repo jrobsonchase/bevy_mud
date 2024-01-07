@@ -2,15 +2,9 @@ use std::fmt::Debug;
 
 use bevy::prelude::*;
 use canton::{
-  account::{
-    AccountPlugin,
-    StartLogin,
-  },
-  character::CharacterPlugin,
-  command::GameCommandsPlugin,
+  account::StartLogin,
   core::CorePlugin,
   db::DbArg,
-  map::MapPlugin,
   negotiate,
   net::{
     PortArg,
@@ -65,11 +59,6 @@ fn main() -> anyhow::Result<()> {
   app.add_plugins(CorePlugin::with_runtime(rt.handle().clone()));
 
   app.add_plugins(args);
-
-  app.add_plugins(AccountPlugin);
-  app.add_plugins(GameCommandsPlugin);
-  app.add_plugins(CharacterPlugin);
-  app.add_plugins(MapPlugin);
 
   app.add_systems(Update, greeter);
 
