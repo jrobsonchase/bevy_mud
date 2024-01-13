@@ -1,5 +1,6 @@
 use std::{
   any::Any,
+  cmp::Ordering,
   ops::{
     Add,
     AddAssign,
@@ -24,7 +25,10 @@ use crate::{
     Cubic,
     DIRECTIONS,
   },
-  map::Transform,
+  map::{
+    GlobalTransform,
+    Transform,
+  },
   output::PlayerOutput,
   savestate::SaveExt,
 };
@@ -33,12 +37,14 @@ pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
   fn build(&self, app: &mut App) {
+    app.add_event::<MoveEvent>();
+
     app.persist_component::<Speed>();
 
     app.register_type::<MoveDebt>().register_type::<Moving>();
 
     app.add_systems(FixedUpdate, movement_system);
-    app.add_systems(Update, moving_output);
+    app.add_systems(FixedUpdate, moving_output.before(movement_system));
     app.add_systems(Update, stop_moving.after(movement_system));
   }
 }
@@ -137,6 +143,18 @@ pub enum MoveAction {
 }
 
 impl MoveAction {
+  fn to_absolute(self, facing: i8) -> Self {
+    match self {
+      Self::MoveRelative(coords) => Self::MoveAbsolute(coords.rotate(facing)),
+      other => other,
+    }
+  }
+  fn to_relative(self, facing: i8) -> Self {
+    match self {
+      Self::MoveAbsolute(coords) => Self::MoveRelative(coords.rotate(-(facing))),
+      other => other,
+    }
+  }
   fn debt(&self) -> MoveDebt {
     match self {
       Self::MoveAbsolute(off) | Self::MoveRelative(off) => MoveDebt {
@@ -178,12 +196,33 @@ impl Action for MoveAction {
 
       debug!(entity = ?entity.id(), ?action, "adding move action");
       entity.insert(action);
+      let id = entity.id();
+      entity.world_scope(|world| {
+        world.send_event(MoveEvent {
+          entity: id,
+          typ: MoveState::Start,
+          action,
+        });
+      });
 
       if !entity.contains::<Moving>() {
         entity.insert(Moving);
       }
     });
   }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MoveState {
+  Start,
+  Finish,
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct MoveEvent {
+  pub entity: Entity,
+  pub typ: MoveState,
+  pub action: MoveAction,
 }
 
 fn movement_system(
@@ -208,9 +247,10 @@ fn movement_system(
 
       let mut xform = try_opt!(xform, return);
 
-      let moved = match try_opt!(action, return) {
+      let action = *try_opt!(action, return);
+      let moved = match action {
         MoveAction::MoveAbsolute(off) if debt.movement == 0f32 => {
-          xform.coords += *off;
+          xform.coords += off;
           true
         }
         MoveAction::MoveRelative(off) if debt.movement == 0f32 => {
@@ -229,7 +269,7 @@ fn movement_system(
         cmd.command_scope(|mut cmd| {
           debug!("completed movement, un-busying");
           let mut entity = cmd.entity(ent);
-          entity.add(|mut entity: EntityWorldMut<'_>| {
+          entity.add(move |mut entity: EntityWorldMut<'_>| {
             let moving = entity
               .get::<Queue>()
               .and_then(|q| {
@@ -243,22 +283,68 @@ fn movement_system(
               entity.remove::<Moving>();
             }
             entity.remove::<(MoveAction, Busy)>();
+            entity.world_scope(|world| {
+              world.send_event(MoveEvent {
+                entity: ent,
+                typ: MoveState::Finish,
+                action,
+              });
+            });
           });
         });
       }
     })
 }
 
+const HUMAN_DIRECTIONS: [&str; 6] = [
+  "backward and to your right",
+  "forward and to your right",
+  "forward",
+  "forward and to your left",
+  "backward and to your left",
+  "backward",
+];
+
 fn moving_output(
   output: PlayerOutput,
-  added: Query<Entity, Added<Moving>>,
-  mut removed: RemovedComponents<Moving>,
+  mut startstop_events: EventReader<MoveEvent>,
+  locations: Query<&GlobalTransform>,
 ) {
-  for entity in added.iter() {
-    try_opt!(output.get(entity), continue).line("You begin moving.");
-  }
-  for entity in removed.read() {
-    try_opt!(output.get(entity), continue).line("You have finished moving.");
+  for ev in startstop_events.read() {
+    let out = try_opt!(output.get(ev.entity), continue);
+    let xform = try_opt!(locations.get(ev.entity).ok(), continue);
+
+    let start = match ev.typ {
+      MoveState::Start => "You start to",
+      MoveState::Finish => "You",
+    };
+
+    let (action, direction) = match ev.action.to_relative(xform.facing) {
+      MoveAction::Turn(dir) => (
+        "turn",
+        match 0.cmp(&dir) {
+          Ordering::Less => "to your right",
+          Ordering::Greater => "to your left",
+          _ => "... nowhere? That seems wrong",
+        },
+      ),
+      MoveAction::MoveRelative(coords) => (
+        "move",
+        HUMAN_DIRECTIONS
+          .iter()
+          .enumerate()
+          .find_map(|(i, msg)| {
+            if coords == DIRECTIONS[i] {
+              Some(*msg)
+            } else {
+              None
+            }
+          })
+          .unwrap_or("... nowhere? That seems wrong"),
+      ),
+      _ => unreachable!(),
+    };
+    out.line(format!("{} {} {}.", start, action, direction));
   }
 }
 

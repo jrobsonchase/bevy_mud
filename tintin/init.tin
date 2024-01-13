@@ -46,7 +46,7 @@
 	#line oneshot #action {^Account name:} {#send admin;};
 	#line oneshot #action {^Creating new account} {#send password;};
 	#line oneshot #action {^Password:} {#send password;};
-	#prompt {^> } {%%0};
+	#prompt {^> %*} {%%0};
 }
 
 #event {SESSION TIMED OUT}
@@ -63,18 +63,23 @@
 	#sess canton 127.0.0.1 23840;
 }
 
-#macro {\ew} {#send forward; #line gag}
-#macro {\eq} {#send forwardleft; #line gag}
-#macro {\ee} {#send forwardright; #line gag}
-#macro {\ea} {#send left; #line gag}
-#macro {\es} {#send backward; #line gag}
-#macro {\ez} {#send backwardleft; #line gag}
-#macro {\ec} {#send backwardright; #line gag}
-#macro {\ed} {#send right; #line gag}
+#alias .move {
+	#send %1;
+	#line oneshot #gag {^$};
+}
 
-#macro {\ej} {#send south; #line gag}
-#macro {\ek} {#send north; #line gag}
-#macro {\eu} {#send northwest; #line gag}
-#macro {\ei} {#send northeast; #line gag}
-#macro {\en} {#send southwest; #line gag}
-#macro {\em} {#send southeast; #line gag}
+#macro {\ew} {.move forward}
+#macro {\eq} {.move forwardleft}
+#macro {\ee} {.move forwardright}
+#macro {\ea} {.move left}
+#macro {\es} {.move backward}
+#macro {\ez} {.move backwardleft}
+#macro {\ec} {.move backwardright}
+#macro {\ed} {.move right}
+
+#macro {\ej} {.move south}
+#macro {\ek} {.move north}
+#macro {\eu} {.move northwest}
+#macro {\ei} {.move northeast}
+#macro {\en} {.move southwest}
+#macro {\em} {.move southeast}
