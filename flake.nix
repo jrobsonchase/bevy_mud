@@ -93,6 +93,9 @@
           ];
           nativeBuidInputs = with pkgs; [
           ];
+          singleStep = true;
+          DATABASE_URL = "sqlite://base-db.sqlite";
+
         };
       in
       rec {
@@ -146,5 +149,9 @@
           DATABASE_URL = "sqlite://db.sqlite";
         };
       }
-    );
+      ) // {
+        hydraJobs = {
+          inherit (self.packages) x86_64-linux;
+        };
+      };
 }
