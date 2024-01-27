@@ -275,7 +275,7 @@ fn movement_system(
               .and_then(|q| {
                 debug!("checking queue for movement action");
                 q.front()
-                  .and_then(|act| (&**act as &dyn Any).downcast_ref::<MoveAction>())
+                  .and_then(|act| (act as &dyn Any).downcast_ref::<MoveAction>())
               })
               .is_some();
             if !moving {
