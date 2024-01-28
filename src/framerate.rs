@@ -6,12 +6,6 @@ use bevy::{
 pub struct LogFrameRatePlugin<const WINDOW: usize>;
 
 #[derive(Resource)]
-struct Frames(usize);
-
-#[derive(Resource)]
-struct FrameTime(f64);
-
-#[derive(Resource)]
 struct FrameWindow<const WINDOW: usize>(usize, [Option<f64>; WINDOW]);
 
 impl<const WINDOW: usize> Default for FrameWindow<WINDOW> {

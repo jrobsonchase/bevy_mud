@@ -143,6 +143,7 @@ pub enum MoveAction {
 }
 
 impl MoveAction {
+  #[allow(dead_code)]
   fn to_absolute(self, facing: i8) -> Self {
     match self {
       Self::MoveRelative(coords) => Self::MoveAbsolute(coords.rotate(facing)),
