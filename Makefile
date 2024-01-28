@@ -1,3 +1,6 @@
+FEATURES = bevy/dynamic_linking,tracy
+RUST_LOG = canton::framerate=debug,info
+
 all: db.sqlite base-db.sqlite build
 
 clean:
@@ -13,7 +16,7 @@ db.sqlite:
 
 .PHONY: build
 build:
-	cargo build --release --features=bevy/dynamic_linking,tracy
+	cargo build --release --features=$(FEATURES)
 
 .PHONY: stop
 stop:
@@ -21,4 +24,4 @@ stop:
 
 .PHONY: start
 start: build stop
-	RUST_LOG=canton::framerate=debug,info cargo run --features=bevy/dynamic_linking,tracy --release &
+	RUST_LOG=$(RUST_LOG) cargo run --features=$(FEATURES) --release &

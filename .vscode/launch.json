@@ -11,13 +11,18 @@
 			"cargo": {
 				"args": [
 					"build",
+					"--profile=release-with-debug",
 					"--bin=canton",
-					"--package=canton"
+					"--package=canton",
+					"--features=bevy/dynamic_linking,tracy"
 				],
 				"filter": {
 					"name": "canton",
 					"kind": "bin"
 				}
+			},
+			"env": {
+				"LD_LIBRARY_PATH": "${workspaceFolder}/target/release-with-debug/deps"
 			},
 			"args": [],
 			"cwd": "${workspaceFolder}"

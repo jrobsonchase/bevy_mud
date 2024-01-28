@@ -103,6 +103,10 @@
         ];
         RUST_SRC_PATH = "${dev-toolchain}/lib/rustlib/src/rust/library";
         DATABASE_URL = "sqlite://db.sqlite";
+        NIX_LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
+          stdenv.cc.cc
+          zlib
+        ];
       };
       hydraJobs = packages;
     }
