@@ -69,7 +69,6 @@
         ];
         singleStep = true;
         DATABASE_URL = "sqlite://base-db.sqlite";
-
       };
     in
     rec {
@@ -100,6 +99,8 @@
           lz4
           lldb
           sqlite-wrapped
+          cargo-edit
+          sqlx-cli
         ];
         RUST_SRC_PATH = "${dev-toolchain}/lib/rustlib/src/rust/library";
         DATABASE_URL = "sqlite://db.sqlite";
