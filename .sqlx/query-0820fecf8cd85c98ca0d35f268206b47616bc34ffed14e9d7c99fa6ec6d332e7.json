@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO character (user_id, entity) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0820fecf8cd85c98ca0d35f268206b47616bc34ffed14e9d7c99fa6ec6d332e7"
+}

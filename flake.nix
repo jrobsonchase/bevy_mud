@@ -68,7 +68,6 @@
         nativeBuidInputs = with pkgs; [
         ];
         singleStep = true;
-        DATABASE_URL = "sqlite://base-db.sqlite";
       };
     in
     rec {
@@ -104,6 +103,7 @@
         ];
         RUST_SRC_PATH = "${dev-toolchain}/lib/rustlib/src/rust/library";
         DATABASE_URL = "sqlite://db.sqlite";
+        SQLX_OFFLINE = "true";
         NIX_LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
           stdenv.cc.cc
           zlib

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ec.entity\n      FROM entity e, component c, entity_component ec\n      WHERE e.id = ec.entity\n      AND c.id = ec.component\n      AND c.name = 'canton::savestate::AutoLoad'",
+  "describe": {
+    "columns": [
+      {
+        "name": "entity",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2f33ed19de94c80432f5eca66b7955647293f51d610f1120b6e56804509b9a33"
+}

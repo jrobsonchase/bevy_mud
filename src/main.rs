@@ -6,10 +6,7 @@ use canton::{
   core::CorePlugin,
   db::DbArg,
   negotiate,
-  net::{
-    PortArg,
-    *,
-  },
+  net::*,
 };
 use clap::Parser;
 #[cfg(feature = "otel")]

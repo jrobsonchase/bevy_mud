@@ -1,5 +1,5 @@
 FEATURES = bevy/dynamic_linking,tracy
-RUST_LOG = canton::framerate=debug,info
+RUST_LOG = canton=debug,info
 
 all: db.sqlite base-db.sqlite build
 
@@ -14,8 +14,12 @@ base-db.sqlite: schema.sql
 db.sqlite:
 	sqlite3 db.sqlite < schema.sql
 
+.PHONY: prepare-sqlx
+prepare-sqlx:
+	DATABASE_URL=sqlite://base-db.sqlite cargo sqlx prepare --workspace -- --all-targets
+
 .PHONY: build
-build:
+build: prepare-sqlx
 	cargo build --release --features=$(FEATURES)
 
 .PHONY: stop
