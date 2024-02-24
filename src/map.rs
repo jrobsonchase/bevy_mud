@@ -18,6 +18,7 @@ use bevy::{
     HashMap,
   },
 };
+use bevy_sqlite::SaveExt;
 use ratatui::{
   prelude::Rect,
   widgets::Widget,
@@ -40,7 +41,6 @@ use crate::{
     TelnetOut,
     GMCP,
   },
-  savestate::SaveExt,
 };
 
 const MAP_RADIUS: u64 = 8;

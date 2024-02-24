@@ -1,32 +1,58 @@
+#![allow(clippy::type_complexity)]
+
 mod db;
 mod extract;
 mod ser;
 
 use std::{
   any::TypeId,
+  error::Error,
   iter,
 };
 
 use bevy::{
   app::AppExit,
+  ecs::query::WorldQuery,
   prelude::*,
   reflect::GetTypeRegistration,
   utils::HashSet,
 };
+use bevy_async_util::AsyncRuntime;
+pub use db::Db;
 use db::*;
 use extract::EntityExtractor;
 
-use crate::{
-  coords::Cubic,
-  core::CantonStartup,
-  map::{
-    self,
-    Map,
-    Tile,
-  },
-  tasks::TokioRuntime,
-  util::HierEntity,
-};
+pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
+
+#[derive(WorldQuery)]
+struct HierEntity<'a> {
+  pub entity: Entity,
+  pub parent: Option<&'a Parent>,
+}
+
+impl<'a, 'b> HierEntityItem<'a, 'b> {
+  pub fn despawn(&self, cmds: &mut Commands) {
+    if let Some(mut parent) = self.parent.and_then(|p| cmds.get_entity(**p)) {
+      parent.remove_children(&[self.entity]);
+    }
+    if let Some(ent) = cmds.get_entity(self.entity) {
+      debug!(?self.entity, "despawning recursively");
+      ent.despawn_recursive();
+    }
+  }
+}
+
+macro_rules! try_res {
+  ($opt:expr, $e:tt => $block:expr $(,)*) => {{
+    let opt = $opt;
+    #[allow(clippy::redundant_closure_call)]
+    let res = (move || opt)();
+    match res {
+      Ok(v) => v,
+      Err($e) => $block,
+    }
+  }};
+}
 
 /// Marker component for entities that should be saved to the database.
 /// Removing this has no effect in and of itself - to delete the entity from the
@@ -90,6 +116,7 @@ pub struct Unload;
 #[reflect(Component)]
 pub struct Save;
 
+/// The set of components that are persisted to the database.
 #[derive(Resource, Default)]
 pub struct PersistComponents {
   type_ids: HashSet<TypeId>,
@@ -135,7 +162,7 @@ fn save_all(
   mut cmd: Commands,
   extractor: EntityExtractor,
   db: SaveDb,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   query: Query<(Entity, Option<&DbEntity>), With<Persist>>,
   children: Query<&Children>,
 ) {
@@ -153,10 +180,13 @@ fn save_all(
       .map(|t| t.0)
       .flat_map(|e| iter::once(e).chain(children.iter_descendants(e))),
   );
-  let result = try_res!(rt.block_on(db.to_owned().save_entities(entities)), error => {
-    warn!(?error, "failed to save entities to db");
-    return;
-  });
+  let result = match rt.block_on(db.to_owned().save_entities(entities)) {
+    Ok(res) => res,
+    Err(error) => {
+      warn!(?error, "failed to save entities to db");
+      return;
+    }
+  };
   for (entity, db_entity) in result {
     cmd.entity(entity).insert(db_entity);
   }
@@ -196,7 +226,7 @@ fn unload(
   mut cmd: Commands,
   extractor: EntityExtractor,
   db: SaveDb,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   query: Query<(HierEntity, Option<&Persist>, Option<&DbEntity>), With<Unload>>,
   children: Query<&Children>,
 ) {
@@ -228,7 +258,7 @@ fn save(
   mut cmd: Commands,
   extractor: EntityExtractor,
   db: SaveDb,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   query: Query<(Entity, Option<&DbEntity>), Or<(With<Save>, (With<Persist>, Without<DbEntity>))>>,
   children: Query<&Children>,
 ) {
@@ -255,26 +285,17 @@ fn save(
   }
 }
 
-fn autoload(mut cmd: Commands, db: SaveDb, rt: Res<TokioRuntime>) {
+fn autoload(mut cmd: Commands, db: SaveDb, rt: Res<AsyncRuntime>) {
   debug!("autoloading entities");
   let entities = try_res!(rt.block_on(db.to_owned().autoload_entities()), error => {
     warn!(?error, "failed to fetch entities");
     return
   });
   if !entities.is_empty() {
+    debug!("writing {} entities to world", entities.len());
     cmd.add(db.write_to_world(entities));
   } else {
-    debug!("spawning empty-ish map");
-    cmd.spawn((Persist, AutoLoad, Map("default".into())));
-    cmd.spawn((
-      Persist,
-      Tile,
-      map::Transform {
-        map: "default".into(),
-        coords: Cubic(0, 0, 0),
-        ..Default::default()
-      },
-    ));
+    debug!("nothing to autoload!");
   }
 }
 
@@ -282,7 +303,7 @@ fn autoload(mut cmd: Commands, db: SaveDb, rt: Res<TokioRuntime>) {
 fn load(
   mut cmd: Commands,
   db: SaveDb,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   query: Query<(Entity, &DbEntity), With<Load>>,
 ) {
   if query.is_empty() {
@@ -306,7 +327,7 @@ fn load(
 fn delete(
   mut cmd: Commands,
   db: SaveDb,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   query: Query<HierEntity, With<Delete>>,
 ) {
   if query.is_empty() {
@@ -340,7 +361,7 @@ impl Plugin for SaveStatePlugin {
       .persist_component::<Parent>()
       .persist_component::<AutoLoad>()
       .persist_component::<Persist>()
-      .add_systems(Startup, autoload.in_set(CantonStartup::World))
+      .add_systems(Startup, autoload)
       .add_systems(Last, (delete, load, unload, save))
       .add_systems(Last, untrack.after(unload).after(delete).before(save_all))
       .add_systems(

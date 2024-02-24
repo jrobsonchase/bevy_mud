@@ -11,6 +11,8 @@ use bevy::{
   diagnostic::DiagnosticsPlugin,
   prelude::*,
 };
+use bevy_async_util::AsyncPlugin;
+use bevy_sqlite::SaveStatePlugin;
 use tokio::runtime::Handle;
 use tracing::Level;
 use tracing_subscriber::{
@@ -28,12 +30,10 @@ use crate::{
   map::MapPlugin,
   movement::MovementPlugin,
   net::TelnetPlugin,
-  savestate::SaveStatePlugin,
   signal::{
     Signal,
     SignalPlugin,
   },
-  tasks::TokioPlugin,
 };
 
 #[derive(SystemSet, Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -95,8 +95,7 @@ impl Plugin for CorePlugin {
     app.add_systems(Update, signal_handler);
 
     app.add_plugins((
-      TokioPlugin::new(self.0.clone()),
-      crate::db::DbPlugin,
+      AsyncPlugin::new(self.0.clone()),
       SaveStatePlugin,
       TelnetPlugin,
     ));

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ec.entity\n      FROM entity e, component c, entity_component ec\n      WHERE e.id = ec.entity\n      AND c.id = ec.component\n      AND c.name = 'bevy_sqlite::AutoLoad'",
+  "describe": {
+    "columns": [
+      {
+        "name": "entity",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aae3a5b1c2a9fdf98cacd3c1ea5a560aac6e592b21dcd8d279cc490a8f59359c"
+}

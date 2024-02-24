@@ -1,3 +1,6 @@
+[workspace]
+members = ["bevy_async_util", "bevy_sqlite"]
+
 [package]
 name = "canton"
 version = "0.1.0"
@@ -8,6 +11,8 @@ default-run = "canton"
 
 
 [dependencies]
+bevy_sqlite = { path = "./bevy_sqlite" }
+bevy_async_util = { path = "./bevy_async_util" }
 anyhow = "1.0.75"
 bevy = { version = "0.12", features = [
 	"multi-threaded",

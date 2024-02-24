@@ -19,7 +19,7 @@ prepare-sqlx:
 	DATABASE_URL=sqlite://base-db.sqlite cargo sqlx prepare --workspace -- --all-targets
 
 .PHONY: build
-build: prepare-sqlx
+build:
 	cargo build --release --features=$(FEATURES)
 
 .PHONY: stop

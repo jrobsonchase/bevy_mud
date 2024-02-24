@@ -8,6 +8,14 @@ use bevy::{
   ecs::system::Command,
   prelude::*,
 };
+use bevy_async_util::EntityCommandsExt;
+use bevy_sqlite::{
+  Db,
+  DbEntity,
+  Load,
+  Persist,
+  Save,
+};
 
 use crate::{
   character::{
@@ -15,15 +23,7 @@ use crate::{
     Player,
     Puppet,
   },
-  db::Db,
   net::*,
-  savestate::{
-    DbEntity,
-    Load,
-    Persist,
-    Save,
-  },
-  tasks::EntityCommandsExt as _,
 };
 
 #[derive(Component, Reflect, Default)]
@@ -93,7 +93,7 @@ fn login_system(
 
         let db = db.clone();
 
-        cmd.entity(entity).remove::<LoginState>().spawn_callback(
+        cmd.entity(entity).remove::<LoginState>().attach_callback(
           async move {
             let results = sqlx::query!("SELECT id from user where name = ?", name)
               .fetch_optional(&*db)
@@ -137,7 +137,7 @@ fn login_system(
         let id = *user_id;
         let username = mem::take(name);
 
-        cmd.entity(entity).remove::<LoginState>().spawn_callback(
+        cmd.entity(entity).remove::<LoginState>().attach_callback(
           async move {
             let row = sqlx::query!("SELECT password FROM user WHERE id = ?", id)
               .fetch_one(&*db)
@@ -159,7 +159,7 @@ fn login_system(
                   id,
                   admin: true,
                 })
-                .spawn_callback(
+                .attach_callback(
                   async move {
                     let mut conn = db.acquire().await?;
                     let row = sqlx::query!("select entity from character where user_id = ?", id)
@@ -223,7 +223,7 @@ fn login_system(
         let db = db.clone();
         let name = mem::take(name);
 
-        cmd.entity(entity).remove::<LoginState>().spawn_callback(
+        cmd.entity(entity).remove::<LoginState>().attach_callback(
           async move {
             let hashed = hash(confirm, 4)?;
 

@@ -11,6 +11,7 @@ use bevy::{
   app::AppExit,
   prelude::*,
 };
+use bevy_async_util::AsyncRuntime;
 use bytes::BytesMut;
 use futures::{
   prelude::*,
@@ -52,7 +53,6 @@ use tracing::{
 use crate::{
   core::CantonStartup,
   oneshot::run_system,
-  tasks::*,
   util::HierEntity,
 };
 
@@ -127,7 +127,7 @@ impl Default for Listener {
   }
 }
 
-fn start_ngrok(rt: &TokioRuntime, domain: &str) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
+fn start_ngrok(rt: &AsyncRuntime, domain: &str) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
   let mut l = rt.block_on(async move {
     Ok::<_, anyhow::Error>(
       ngrok::Session::builder()
@@ -160,7 +160,7 @@ fn start_ngrok(rt: &TokioRuntime, domain: &str) -> anyhow::Result<UnboundedRecei
   Ok(new_rx)
 }
 
-fn start_tcp(rt: &TokioRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
+fn start_tcp(rt: &AsyncRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
   let l = rt.block_on(TcpListener::bind(format!("0.0.0.0:{port}")))?;
   info!(port, "started tcp listener");
   let (new_tx, new_rx) = mpsc::unbounded_channel();
@@ -181,7 +181,7 @@ fn start_tcp(rt: &TokioRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<C
 
 fn start_listener(
   arg: Res<PortArg>,
-  rt: Res<TokioRuntime>,
+  rt: Res<AsyncRuntime>,
   mut commands: Commands,
   mut exit: EventWriter<AppExit>,
 ) {

@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
+use bevy_sqlite::Db;
 use canton::{
   account::StartLogin,
   core::CorePlugin,
-  db::DbArg,
   negotiate,
   net::*,
 };
@@ -39,7 +39,6 @@ struct Args {
 impl Plugin for Args {
   fn build(&self, app: &mut App) {
     app.insert_resource(PortArg(self.port));
-    app.insert_resource(DbArg(self.db.clone()));
   }
 }
 
@@ -52,6 +51,12 @@ fn main() -> anyhow::Result<()> {
     .unwrap();
 
   let mut app = App::new();
+
+  {
+    let rt = rt.enter();
+    app.insert_resource(Db::connect_lazy("sqlite://db.sqlite").expect("failed to open database"));
+    drop(rt);
+  }
 
   app.add_plugins(CorePlugin::with_runtime(rt.handle().clone()));
 

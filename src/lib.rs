@@ -18,12 +18,9 @@ pub mod output;
 
 pub mod coords;
 pub mod core;
-pub mod db;
 pub mod framerate;
 pub mod oneshot;
-pub mod savestate;
 pub mod signal;
-pub mod tasks;
 
 pub mod ascii_map;
 pub mod map;

@@ -1,0 +1,9 @@
+[package]
+name = "bevy_async_util"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.32.0", features = ["rt-multi-thread"] }
+futures = "0.3.28"
+bevy = { version = "0.12", features = [], default-features = false }

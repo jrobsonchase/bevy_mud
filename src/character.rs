@@ -2,14 +2,14 @@ use bevy::{
   prelude::*,
   utils::HashSet,
 };
+use bevy_sqlite::{
+  SaveExt,
+  Unload,
+};
 
 use crate::{
   action::Queue,
   movement::Speed,
-  savestate::{
-    SaveExt,
-    Unload,
-  },
 };
 
 /// Pointer from a character to the player who controls it.

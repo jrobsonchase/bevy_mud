@@ -1,4 +1,5 @@
 use std::{
+  error::Error,
   fmt::Debug,
   future::Future,
   pin::Pin,
@@ -8,7 +9,6 @@ use std::{
   },
 };
 
-use anyhow::Error;
 use bevy::{
   core::FrameCount,
   ecs::system::{
@@ -28,17 +28,19 @@ use tokio::{
   task::JoinHandle,
 };
 
-#[derive(Default)]
-pub struct TokioPlugin(Option<Handle>);
+pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
-impl TokioPlugin {
+#[derive(Default)]
+pub struct AsyncPlugin(Option<Handle>);
+
+impl AsyncPlugin {
   pub fn new(handle: Option<Handle>) -> Self {
     Self(handle)
   }
 }
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct TokioRuntime(Handle);
+pub struct AsyncRuntime(Handle);
 
 struct BoxCommand(Box<dyn FnOnce(&mut World) + Send + 'static>);
 
@@ -54,7 +56,7 @@ impl BoxCommand {
   }
 }
 
-type ErrCb = Box<dyn FnOnce(Error, Entity, &mut World) + Send + Sync + 'static>;
+type ErrCb = Box<dyn FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static>;
 
 #[derive(Component)]
 pub struct Callback(Task<BoxCommand>, Option<ErrCb>);
@@ -66,7 +68,9 @@ fn run_callbacks(
 ) {
   query.iter_mut().for_each(|(entity, mut cb)| {
     let Callback(task, err_cb) = &mut *cb;
-    let task_result = try_opt!(check_task(task), return);
+    let Some(task_result) = check_task(task) else {
+      return;
+    };
     let err_cb = err_cb.take().expect("Callback can only complete once");
 
     let frame = frame.0;
@@ -89,11 +93,11 @@ fn run_callbacks(
 }
 
 pub struct Task<T> {
-  fut: JoinHandle<Result<T, Error>>,
+  fut: JoinHandle<Result<T, BoxError>>,
 }
 
 impl<T> Future for Task<T> {
-  type Output = Result<T, Error>;
+  type Output = Result<T, BoxError>;
 
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let res = ready!(self.fut.poll_unpin(cx))?;
@@ -103,12 +107,12 @@ impl<T> Future for Task<T> {
 
 impl<T> Task<T> {
   #[allow(dead_code)]
-  pub fn check(&mut self) -> Option<Result<T, Error>> {
+  pub fn check(&mut self) -> Option<Result<T, BoxError>> {
     check_task(self)
   }
 }
 
-impl TokioRuntime {
+impl AsyncRuntime {
   pub fn block_on<F>(&self, fut: F) -> F::Output
   where
     F: Future,
@@ -120,7 +124,7 @@ impl TokioRuntime {
   }
   pub fn spawn<F, T>(&self, fut: F) -> Task<T>
   where
-    F: Future<Output = Result<T, Error>> + Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
     T: Send + 'static,
   {
     Task {
@@ -129,7 +133,7 @@ impl TokioRuntime {
   }
 }
 
-impl Plugin for TokioPlugin {
+impl Plugin for AsyncPlugin {
   fn build(&self, app: &mut App) {
     let handle = self.0.clone().unwrap_or_else(|| {
       tokio::runtime::Builder::new_multi_thread()
@@ -139,7 +143,7 @@ impl Plugin for TokioPlugin {
         .handle()
         .clone()
     });
-    app.insert_resource(TokioRuntime(handle)).add_systems(
+    app.insert_resource(AsyncRuntime(handle)).add_systems(
       PreUpdate,
       run_callbacks.run_if(any_with_component::<Callback>()),
     );
@@ -154,25 +158,25 @@ where
 }
 
 pub trait EntityCommandsExt {
-  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
     T: Debug + Send + 'static,
-    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
-    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static;
+    E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static;
 }
 
 impl EntityCommandsExt for EntityWorldMut<'_> {
-  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
     T: Debug + Send + 'static,
-    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
-    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
+    E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static,
   {
     let entity = self.id();
     let world = self.world();
-    let rt = world.resource::<TokioRuntime>();
+    let rt = world.resource::<AsyncRuntime>();
     let frame = world.resource::<FrameCount>().0;
     trace!(frame, "spawning async task");
     let task = rt.spawn(async move {
@@ -189,15 +193,15 @@ impl EntityCommandsExt for EntityWorldMut<'_> {
 }
 
 impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
-  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
+  fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
     T: Debug + Send + 'static,
-    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
-    E: FnOnce(anyhow::Error, Entity, &mut World) + Send + Sync + 'static,
+    E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static,
   {
     self.add(move |mut entity_world: EntityWorldMut| {
-      entity_world.spawn_callback(fut, cb, on_err);
+      entity_world.attach_callback(fut, cb, on_err);
     })
   }
 }

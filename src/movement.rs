@@ -13,6 +13,7 @@ use bevy::{
   ecs::system::EntityCommands,
   prelude::*,
 };
+use bevy_sqlite::SaveExt;
 
 use crate::{
   action::{
@@ -30,7 +31,6 @@ use crate::{
     Transform,
   },
   output::PlayerOutput,
-  savestate::SaveExt,
 };
 
 pub struct MovementPlugin;

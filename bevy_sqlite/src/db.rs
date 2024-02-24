@@ -23,7 +23,9 @@ use futures::prelude::*;
 use sqlx::{
   pool::PoolConnection,
   Either,
+  Pool,
   Sqlite,
+  SqlitePool,
 };
 
 use super::{
@@ -31,7 +33,18 @@ use super::{
   DbEntity,
   Load,
 };
-use crate::db::Db;
+use crate::BoxError;
+
+/// The actual sqlite database connection.
+/// Most functionality expects it to be added to the `World` as a `Resource`.
+#[derive(Resource, Clone, Deref)]
+pub struct Db(Pool<Sqlite>);
+
+impl Db {
+  pub fn connect_lazy(uri: &str) -> Result<Self, sqlx::Error> {
+    Ok(Db(SqlitePool::connect_lazy(uri)?))
+  }
+}
 
 #[derive(SystemParam)]
 pub struct SaveDb<'w> {
@@ -114,14 +127,14 @@ impl<'w> SaveDb<'w> {
 }
 
 impl SaveDbOwned {
-  pub async fn autoload_entities(self) -> anyhow::Result<Vec<DynamicDbEntity>> {
+  pub async fn autoload_entities(self) -> Result<Vec<DynamicDbEntity>, BoxError> {
     let mut conn = self.db.acquire().await?;
     let results = sqlx::query! {
       "SELECT ec.entity
       FROM entity e, component c, entity_component ec
       WHERE e.id = ec.entity
       AND c.id = ec.component
-      AND c.name = 'canton::savestate::AutoLoad'"
+      AND c.name = 'bevy_sqlite::AutoLoad'"
     }
     .fetch(&mut *conn)
     .map(|r| r.map(|r| DbEntity(Entity::from_bits(r.entity as _))));
@@ -134,7 +147,7 @@ impl SaveDbOwned {
     self,
     entities: Vec<DbEntity>,
     conn: Option<PoolConnection<Sqlite>>,
-  ) -> anyhow::Result<Vec<DynamicDbEntity>> {
+  ) -> Result<Vec<DynamicDbEntity>, BoxError> {
     let mut conn = if let Some(conn) = conn {
       conn
     } else {
@@ -182,7 +195,7 @@ impl SaveDbOwned {
 
     Ok(to_load)
   }
-  pub async fn delete_entities(self, entities: Vec<(Entity, DbEntity)>) -> anyhow::Result<()> {
+  pub async fn delete_entities(self, entities: Vec<(Entity, DbEntity)>) -> Result<(), BoxError> {
     if entities.is_empty() {
       return Ok(());
     }
@@ -203,7 +216,7 @@ impl SaveDbOwned {
   pub async fn save_entities(
     self,
     entities: Vec<DynamicEntity>,
-  ) -> anyhow::Result<HashMap<Entity, DbEntity>> {
+  ) -> Result<HashMap<Entity, DbEntity>, BoxError> {
     let mut output = HashMap::new();
     let mut tx = self.db.begin().await?;
     for entity in entities {
@@ -443,9 +456,6 @@ fn find_parent(c: Box<dyn Reflect>) -> Either<Entity, Box<dyn Reflect>> {
 
 #[cfg(test)]
 mod test {
-
-  use sqlx::SqlitePool;
-
   use super::*;
 
   #[derive(Default, Reflect, Component)]
@@ -468,7 +478,7 @@ mod test {
   }
 
   #[tokio::test]
-  async fn test_store_fetch() -> anyhow::Result<()> {
+  async fn test_store_fetch() -> Result<(), BoxError> {
     let db = SqlitePool::connect_lazy("sqlite::memory:")?;
 
     sqlx::query(include_str!("../../schema.sql"))

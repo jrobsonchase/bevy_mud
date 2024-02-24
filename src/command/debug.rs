@@ -17,16 +17,14 @@ use bevy::{
   },
   utils::HashMap,
 };
+use bevy_sqlite::PersistComponents;
 use serde::de::DeserializeSeed;
 
 use super::{
   CommandArgs,
   WorldCommand,
 };
-use crate::{
-  net::TelnetOut,
-  savestate::PersistComponents,
-};
+use crate::net::TelnetOut;
 
 fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let mut entities = args

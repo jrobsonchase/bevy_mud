@@ -1,0 +1,15 @@
+[package]
+name = "bevy_sqlite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.12", features = ["bevy_scene"], default-features = false }
+futures = "0.3.28"
+sqlx = { version = "0.7.3", features = ["runtime-tokio", "sqlite", "chrono"] }
+ron = "0.8.1"
+serde = "1.0.189"
+bevy_async_util = { path = "../bevy_async_util" }
+
+[dev-dependencies]
+tokio = { version = "1.36.0", features = ["macros", "rt"] }
