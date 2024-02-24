@@ -1,5 +1,6 @@
 FEATURES = bevy/dynamic_linking,tracy
-RUST_LOG = canton=debug,info
+RUST_LOG = bevy_sqlite=debug,canton=debug,info
+CARGO_ARGS = --release
 
 all: db.sqlite base-db.sqlite build
 
@@ -20,7 +21,7 @@ prepare-sqlx:
 
 .PHONY: build
 build:
-	cargo build --release --features=$(FEATURES)
+	cargo build $(CARGO_ARGS) --features=$(FEATURES)
 
 .PHONY: stop
 stop:
@@ -28,4 +29,4 @@ stop:
 
 .PHONY: start
 start: build stop
-	RUST_LOG=$(RUST_LOG) cargo run --features=$(FEATURES) --release &
+	RUST_LOG=$(RUST_LOG) cargo run --features=$(FEATURES) $(CARGO_ARGS)  &

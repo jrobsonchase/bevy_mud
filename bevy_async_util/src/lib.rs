@@ -145,7 +145,7 @@ impl Plugin for AsyncPlugin {
     });
     app.insert_resource(AsyncRuntime(handle)).add_systems(
       PreUpdate,
-      run_callbacks.run_if(any_with_component::<Callback>()),
+      run_callbacks.run_if(any_with_component::<Callback>),
     );
   }
 }
@@ -192,7 +192,7 @@ impl EntityCommandsExt for EntityWorldMut<'_> {
   }
 }
 
-impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
+impl EntityCommandsExt for EntityCommands<'_> {
   fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
     T: Debug + Send + 'static,

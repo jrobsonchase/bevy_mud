@@ -114,7 +114,6 @@ struct NewConns {
 }
 
 #[derive(Component, Reflect)]
-#[reflect(from_reflect = false)]
 #[reflect(Component)]
 struct Listener {
   #[allow(dead_code)]
@@ -499,7 +498,7 @@ pub fn telnet_handler(mut cmd: Commands, mut query: Query<(Entity, &mut TelnetIn
           debug!(?entity, "not enabling GMCP");
         }
         Event::Negotiation(Cmd::DO, Opt::Known(KnownOpt::GMCP)) => {
-          debug!(?entity, "enabling GMCP");
+          debug!(entity = ?entity.to_bits(), "enabling GMCP");
           cmd.entity(entity).insert(GMCP);
         }
         _ => debug!(?event, "ignoring telnet event"),

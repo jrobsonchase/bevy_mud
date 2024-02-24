@@ -1,9 +1,9 @@
 use bevy::{
-  ecs::query::WorldQuery,
+  ecs::query::QueryData,
   prelude::*,
 };
 
-#[derive(WorldQuery)]
+#[derive(QueryData)]
 pub struct HierEntity<'a> {
   pub entity: Entity,
   pub parent: Option<&'a Parent>,

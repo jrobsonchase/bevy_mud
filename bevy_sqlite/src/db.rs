@@ -10,7 +10,10 @@ use std::{
 };
 
 use bevy::{
-  ecs::system::SystemParam,
+  ecs::{
+    entity::EntityHashMap,
+    system::SystemParam,
+  },
   prelude::*,
   reflect::DynamicTupleStruct,
   scene::DynamicEntity,
@@ -137,7 +140,7 @@ impl SaveDbOwned {
       AND c.name = 'bevy_sqlite::AutoLoad'"
     }
     .fetch(&mut *conn)
-    .map(|r| r.map(|r| DbEntity(Entity::from_bits(r.entity as _))));
+    .map(|r| r.map(|r| DbEntity::from_index(r.entity)));
 
     self
       .load_entities(results.try_collect().await?, Some(conn))
@@ -158,7 +161,7 @@ impl SaveDbOwned {
     let mut to_load = vec![];
 
     for db_entity in entities {
-      let db_id = db_entity.0.to_bits() as i64;
+      let db_id = db_entity.to_index();
       let mut results = sqlx::query! {
           "WITH RECURSIVE
             children(id) as (values(?) union select e.id from entity e, children d where e.parent = d.id)
@@ -167,8 +170,8 @@ impl SaveDbOwned {
         }
         .fetch(&mut *conn);
       while let Some(res) = results.try_next().await? {
-        let ent = DbEntity::from_bits(res.id as u64);
-        let parent = res.parent.map(|p| DbEntity::from_bits(p as u64));
+        let ent = DbEntity::from_index(res.id);
+        let parent = res.parent.map(DbEntity::from_index);
 
         if !seen.contains(&ent) {
           debug!(?ent, "adding entity to load");
@@ -200,9 +203,9 @@ impl SaveDbOwned {
       return Ok(());
     }
     let mut query = "DELETE FROM entity WHERE id IN (".to_string();
-    write!(&mut query, "{}", entities[0].1 .0.to_bits() as i64)?;
+    write!(&mut query, "{}", entities[0].1.to_index())?;
     for entity in &entities[1..] {
-      write!(&mut query, ",{}", entity.1 .0.to_bits() as i64)?;
+      write!(&mut query, ",{}", entity.1.to_index())?;
     }
     write!(&mut query, ")")?;
     let mut conn = self.db.acquire().await?;
@@ -279,8 +282,8 @@ impl SharedDbEntityMap {
 #[allow(dead_code)]
 #[derive(Resource, Default, Debug)]
 struct DbEntityMap {
-  world_to_db: HashMap<Entity, Entity>,
-  db_to_world: HashMap<Entity, Entity>,
+  world_to_db: EntityHashMap<Entity>,
+  db_to_world: EntityHashMap<Entity>,
 }
 
 #[allow(dead_code)]
@@ -331,7 +334,7 @@ where
   debug!(?entity, "fetching entity");
   let mut conn = db.acquire().await?;
 
-  let id = entity.0.to_bits() as i64;
+  let id = entity.to_index();
 
   let mut results = sqlx::query!(
     r#"
@@ -364,10 +367,10 @@ where
   D: sqlx::Acquire<'a, Database = Sqlite> + 'b,
 {
   let mut conn = db.begin().await?;
-  let parent_id = parent.into().map(|p| p.to_bits() as i64);
+  let parent_id = parent.into().map(|p| p.to_index());
   let entity_id = match entity.into() {
     Some(entity) => {
-      let id = entity.to_bits() as i64;
+      let id = entity.to_index();
       // Make sure the entity exists and that the existing state is cleared.
       sqlx::query!(
         r#"
@@ -383,7 +386,7 @@ where
       .await?;
       entity
     }
-    None => DbEntity::from_bits(
+    None => DbEntity::from_index(
       sqlx::query!(
         "INSERT INTO entity (parent) values (?) returning id",
         parent_id,
@@ -395,7 +398,7 @@ where
   };
 
   for (name, value) in components.iter() {
-    let entity_bits = entity_id.to_bits() as i64;
+    let entity_bits = entity_id.to_index() as i64;
     sqlx::query!(
       r#"
         insert or ignore into component (name) values (?);
@@ -416,13 +419,13 @@ where
 }
 
 #[allow(dead_code)]
-async fn delete_entity<D>(db: D, entity: Entity) -> Result<(), sqlx::Error>
+async fn delete_entity<D>(db: D, entity: DbEntity) -> Result<(), sqlx::Error>
 where
   D: for<'a> sqlx::Acquire<'a, Database = Sqlite>,
 {
   let mut tx = db.begin().await?;
 
-  let id = entity.to_bits() as i64;
+  let id = entity.to_index();
 
   sqlx::query!(
     r#"
@@ -462,12 +465,12 @@ mod test {
   #[reflect(Component)]
   pub struct MyComponent(usize);
 
-  fn test_entities<'a>(entities: &'a [(u64, &'a [(&'a str, &'a str)])]) -> SerializedEntities<'a> {
+  fn test_entities<'a>(entities: &'a [(i64, &'a [(&'a str, &'a str)])]) -> SerializedEntities<'a> {
     entities
       .iter()
       .map(|(id, components)| {
         (
-          DbEntity::from_bits(*id),
+          DbEntity::from_index(*id),
           components
             .iter()
             .map(|(name, value)| (Cow::Borrowed(*name), value.to_string()))
@@ -510,7 +513,7 @@ mod test {
       println!("\t{:?}", row);
     }
 
-    let entity = fetch_entity(&db, DbEntity::from_bits(8)).await?;
+    let entity = fetch_entity(&db, DbEntity::from_index(8)).await?;
     println!("{:#?}", entity);
 
     // panic!();

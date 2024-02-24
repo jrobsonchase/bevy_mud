@@ -12,7 +12,7 @@ use std::{
 
 use bevy::{
   app::AppExit,
-  ecs::query::WorldQuery,
+  ecs::query::QueryData,
   prelude::*,
   reflect::GetTypeRegistration,
   utils::HashSet,
@@ -24,7 +24,7 @@ use extract::EntityExtractor;
 
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
-#[derive(WorldQuery)]
+#[derive(QueryData)]
 struct HierEntity<'a> {
   pub entity: Entity,
   pub parent: Option<&'a Parent>,
@@ -84,11 +84,18 @@ impl Default for DbEntity {
 }
 
 impl DbEntity {
-  pub fn from_bits(bits: u64) -> Self {
-    Self(Entity::from_bits(bits))
+  pub fn from_index(id: i64) -> Self {
+    let bits = id as u64;
+    let index = bits as u32;
+    let generation = ((bits >> u32::BITS) + 1) as u32;
+    Self(Entity::from_bits(
+      ((generation as u64) << u32::BITS) | (index as u64),
+    ))
   }
-  pub fn to_bits(self) -> u64 {
-    self.0.to_bits()
+  pub fn to_index(self) -> i64 {
+    let index = self.0.index();
+    let generation = self.0.generation() - 1;
+    (((generation as u64) << u32::BITS) | (index as u64)) as i64
   }
 }
 
@@ -320,6 +327,7 @@ fn load(
     warn!(?error, "failed to fetch entities");
     return
   });
+  debug!("writing {} entities to world", entities.len());
   cmd.add(db.write_to_world(entities));
 }
 

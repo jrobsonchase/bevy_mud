@@ -7,7 +7,10 @@ use std::{
 
 use anyhow::anyhow;
 use bevy::{
-  ecs::system::Command,
+  ecs::{
+    entity::EntityHashMap,
+    system::Command,
+  },
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
   scene::{
@@ -15,7 +18,6 @@ use bevy::{
     serialize_ron,
     DynamicEntity,
   },
-  utils::HashMap,
 };
 use bevy_sqlite::PersistComponents;
 use serde::de::DeserializeSeed;
@@ -153,7 +155,7 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       }],
       ..Default::default()
     };
-    let mut mappings = HashMap::default();
+    let mut mappings = EntityHashMap::default();
     mappings.insert(ent, ent);
     try_res!(scene.write_to_world(world, &mut mappings), err => {
       out.line(format!("Failed to insert component: {}", err));

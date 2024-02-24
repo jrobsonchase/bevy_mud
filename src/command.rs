@@ -232,7 +232,7 @@ impl<'w> EntityCommandsExt for EntityWorldMut<'w> {
   }
 }
 
-impl<'w, 's, 'a> EntityCommandsExt for EntityCommands<'w, 's, 'a> {
+impl<'w> EntityCommandsExt for EntityCommands<'w> {
   fn add_game_commands<C: Into<DynamicCommand>>(
     &mut self,
     commands: impl IntoIterator<Item = C> + Send + 'static,

@@ -65,7 +65,7 @@ impl Plugin for AccountPlugin {
     app.register_type::<Session>();
     app.add_systems(
       Update,
-      login_system.run_if(any_with_component::<LoginState>()),
+      login_system.run_if(any_with_component::<LoginState>),
     );
   }
 }
@@ -165,7 +165,7 @@ fn login_system(
                     let row = sqlx::query!("select entity from character where user_id = ?", id)
                       .fetch_one(&mut *conn)
                       .await?;
-                    Ok(DbEntity::from_bits(row.entity as _))
+                    Ok(DbEntity::from_index(row.entity as _))
                   },
                   move |res, entity, world| {
                     let character = world
@@ -256,7 +256,7 @@ fn login_system(
               .spawn((
                 CharacterBundle::default(),
                 Persist,
-                DbEntity(Entity::from_bits(character_id as _)),
+                DbEntity::from_index(character_id),
                 Player(entity),
                 Save,
               ))

@@ -14,7 +14,8 @@ default-run = "canton"
 bevy_sqlite = { path = "./bevy_sqlite" }
 bevy_async_util = { path = "./bevy_async_util" }
 anyhow = "1.0.75"
-bevy = { version = "0.12", features = [
+bevy_dylib = { version = "0.13", optional = true }
+bevy = { version = "0.13", features = [
 	"multi-threaded",
 	"bevy_scene",
 	"bevy_asset",
@@ -23,7 +24,7 @@ bevy = { version = "0.12", features = [
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
-sqlx = { version = "*", features = [
+sqlx = { version = "0.7.3", features = [
 	"runtime-tokio",
 	"tls-rustls",
 	"sqlite",
