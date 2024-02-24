@@ -1,4 +1,9 @@
-use std::fmt::Write;
+use std::{
+  collections::VecDeque,
+  fmt::Write as _,
+  fs,
+  io::Write as _,
+};
 
 use anyhow::anyhow;
 use bevy::{
@@ -18,7 +23,10 @@ use super::{
   CommandArgs,
   WorldCommand,
 };
-use crate::net::TelnetOut;
+use crate::{
+  net::TelnetOut,
+  savestate::PersistComponents,
+};
 
 fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let mut entities = args
@@ -242,11 +250,64 @@ fn spawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   }))
 }
 
+fn find_entities_recursive(world: &World, entity: Entity) -> impl Iterator<Item = Entity> + '_ {
+  let mut queue = VecDeque::new();
+  queue.push_back(entity);
+
+  std::iter::from_fn(move || {
+    let entity = queue.pop_front()?;
+    let ent_ref = world.get_entity(entity)?;
+    if let Some(children) = ent_ref.get::<Children>() {
+      queue.extend(children.iter());
+    }
+    Some(entity)
+  })
+}
+
+fn dump_to_file(args: CommandArgs) -> anyhow::Result<WorldCommand> {
+  let caller = args.caller.unwrap();
+  let mut split = args.args.split(' ');
+  let entity = Entity::from_bits(
+    split
+      .next()
+      .ok_or_else(|| anyhow!("missing entity argument"))?
+      .parse::<u64>()?,
+  );
+  let filename = split.next().ok_or_else(|| anyhow!("missing file arg"))?;
+  debug!("dumping {:?} and children to {}", entity, filename);
+  let mut file = fs::File::create(filename)?;
+  Ok(Box::new(move |world| {
+    let out = try_opt!(world.get::<TelnetOut>(caller), return).clone();
+    let filter = world
+      .resource::<PersistComponents>()
+      .filter()
+      .allow::<Children>();
+    let entities = find_entities_recursive(world, entity);
+    let scene = DynamicSceneBuilder::from_world(world)
+      .with_filter(filter)
+      .deny_all_resources()
+      .extract_entities(entities)
+      .build();
+    let serialized = try_res!(scene.serialize_ron(world.resource::<AppTypeRegistry>()),
+      err => {
+        _ = writeln!(&out, "error serializing entities: {}", err);
+        return;
+      },
+    );
+    try_res!(file.write_all(serialized.as_bytes()),
+      err => {
+        _ = writeln!(&out, "error writing to file: {}", err);
+      }
+    );
+  }))
+}
+
 command_set! { DebugCommands =>
   ("@entities", entities),
   ("@insert", insert),
   ("@remove", remove),
   ("@spawn", spawn),
+  ("@dump", dump_to_file),
   ("@despawn", despawn),
   ("@parent", parent),
 }
