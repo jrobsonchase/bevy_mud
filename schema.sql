@@ -19,7 +19,7 @@ CREATE TABLE component (
 ) strict;
 CREATE TABLE entity_component (
 	entity integer not null references entity(id) on delete cascade,
-	component integer not null references component(id) on delete cascade,
+	component integer not null references component(id),
 	data text not null,
 	primary key (entity, component)
 ) strict;

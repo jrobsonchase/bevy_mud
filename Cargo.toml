@@ -61,6 +61,8 @@ base64 = "0.21.5"
 bitflags = "2.4.1"
 lz4 = "1.24.0"
 zstd = "0.13.0"
+chumsky = "1.0.0-alpha.7"
+ariadne = { version = "0.4.0", default-features = false }
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]

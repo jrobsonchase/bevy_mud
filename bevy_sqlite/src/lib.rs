@@ -12,15 +12,22 @@ use std::{
 
 use bevy::{
   app::AppExit,
-  ecs::query::QueryData,
+  ecs::{
+    query::QueryData,
+    system::RunSystemOnce,
+  },
   prelude::*,
   reflect::GetTypeRegistration,
   utils::HashSet,
 };
-use bevy_async_util::AsyncRuntime;
+use bevy_async_util::{
+  AsyncRuntime,
+  CommandsExt,
+};
 pub use db::Db;
 use db::*;
 use extract::EntityExtractor;
+use futures::TryFutureExt;
 
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
@@ -292,18 +299,33 @@ fn save(
   }
 }
 
-fn autoload(mut cmd: Commands, db: SaveDb, rt: Res<AsyncRuntime>) {
+fn init_db(mut cmd: Commands, db: SaveDb) {
+  debug!("initializing database");
+  cmd.spawn_callback(
+    db.to_owned().hydrate_entities(),
+    |apply, world| {
+      apply(world);
+      world.run_system_once(autoload)
+    },
+    |error, world| {
+      error!(%error, "failed to fetch entities from the database");
+      world.send_event_default::<AppExit>();
+    },
+  )
+}
+
+fn autoload(mut cmd: Commands, db: SaveDb) {
   debug!("autoloading entities");
-  let entities = try_res!(rt.block_on(db.to_owned().autoload_entities()), error => {
-    warn!(?error, "failed to fetch entities");
-    return
-  });
-  if !entities.is_empty() {
-    debug!("writing {} entities to world", entities.len());
-    cmd.add(db.write_to_world(entities));
-  } else {
-    debug!("nothing to autoload!");
-  }
+  cmd.spawn_callback(
+    db.to_owned().autoload_entities(),
+    |apply, world| {
+      apply(world);
+    },
+    |error, world| {
+      error!(%error, "failed to fetch entities to autoload");
+      world.send_event_default::<AppExit>();
+    },
+  )
 }
 
 #[allow(clippy::type_complexity)]
@@ -323,12 +345,12 @@ fn load(
     orig.push(entity);
     db.add_mapping(*db_entity, entity);
   }
-  let entities = try_res!(rt.block_on(db.to_owned().load_entities(db_entities, None)), error => {
+  let entities = try_res!(rt.block_on(db.to_owned().load_entities(None, db_entities)), error => {
     warn!(?error, "failed to fetch entities");
     return
   });
   debug!("writing {} entities to world", entities.len());
-  cmd.add(db.write_to_world(entities));
+  cmd.add(db.to_owned().write_to_world(entities));
 }
 
 #[allow(clippy::type_complexity)]
@@ -369,7 +391,7 @@ impl Plugin for SaveStatePlugin {
       .persist_component::<Parent>()
       .persist_component::<AutoLoad>()
       .persist_component::<Persist>()
-      .add_systems(Startup, autoload)
+      .add_systems(Startup, (init_db, autoload).chain())
       .add_systems(Last, (delete, load, unload, save))
       .add_systems(Last, untrack.after(unload).after(delete).before(save_all))
       .add_systems(

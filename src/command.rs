@@ -1,6 +1,7 @@
 use anyhow::bail;
 pub mod admin;
 pub mod debug;
+pub mod parse;
 pub mod player;
 
 use std::{

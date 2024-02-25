@@ -11,7 +11,10 @@ use std::{
 
 use bevy::{
   ecs::{
-    entity::EntityHashMap,
+    entity::{
+      EntityHashMap,
+      SceneEntityMapper,
+    },
     system::SystemParam,
   },
   prelude::*,
@@ -24,10 +27,11 @@ use bevy::{
 };
 use futures::prelude::*;
 use sqlx::{
-  pool::PoolConnection,
+  Acquire,
   Either,
   Pool,
   Sqlite,
+  SqliteConnection,
   SqlitePool,
 };
 
@@ -40,7 +44,7 @@ use crate::BoxError;
 
 /// The actual sqlite database connection.
 /// Most functionality expects it to be added to the `World` as a `Resource`.
-#[derive(Resource, Clone, Deref)]
+#[derive(Resource, Clone, Deref, DerefMut)]
 pub struct Db(Pool<Sqlite>);
 
 impl Db {
@@ -51,16 +55,27 @@ impl Db {
 
 #[derive(SystemParam)]
 pub struct SaveDb<'w> {
-  db: Res<'w, Db>,
-  type_registry: Res<'w, AppTypeRegistry>,
-  map: Res<'w, SharedDbEntityMap>,
+  pub(crate) db: Res<'w, Db>,
+  pub(crate) type_registry: Res<'w, AppTypeRegistry>,
+  pub(crate) map: Res<'w, SharedDbEntityMap>,
 }
 
 #[derive(Clone)]
 pub struct SaveDbOwned {
-  db: Db,
-  type_registry: AppTypeRegistry,
-  map: SharedDbEntityMap,
+  pub(crate) db: Db,
+  pub(crate) type_registry: AppTypeRegistry,
+  pub(crate) map: SharedDbEntityMap,
+}
+
+impl From<&'_ World> for SaveDbOwned {
+  fn from(value: &'_ World) -> Self {
+    let db = SaveDbOwned {
+      db: value.resource::<Db>().clone(),
+      type_registry: value.resource::<AppTypeRegistry>().clone(),
+      map: value.resource::<SharedDbEntityMap>().clone(),
+    };
+    db
+  }
 }
 
 impl<'w> SaveDb<'w> {
@@ -72,7 +87,27 @@ impl<'w> SaveDb<'w> {
     }
   }
 
-  pub fn write_to_world(&self, mut ents: Vec<DynamicDbEntity>) -> impl FnOnce(&mut World) {
+  pub fn add_mapping(&self, db_entity: DbEntity, world_entity: Entity) {
+    let mut map = self.map.write();
+    map.add_db_mapping(db_entity, world_entity);
+  }
+  pub fn remove_mapping(&self, world_entity: Entity) {
+    let mut map = self.map.write();
+    map.remove_db_mapping(world_entity);
+  }
+  pub fn db_entities(&self, entities: impl Iterator<Item = Entity>) -> Vec<(Entity, DbEntity)> {
+    let db = self.map.read();
+    entities
+      .filter_map(|e| db.db_entity(e).map(|d| (e, d)))
+      .collect()
+  }
+}
+
+impl SaveDbOwned {
+  pub fn write_to_world(
+    &self,
+    mut ents: Vec<DynamicDbEntity>,
+  ) -> impl FnOnce(&mut World) + 'static {
     let mappings = self.map.clone();
     let scene = DynamicScene {
       entities: ents
@@ -113,26 +148,33 @@ impl<'w> SaveDb<'w> {
       }
     }
   }
-  pub fn add_mapping(&self, db_entity: DbEntity, world_entity: Entity) {
-    let mut map = self.map.write();
-    map.add_db_mapping(db_entity, world_entity);
-  }
-  pub fn remove_mapping(&self, world_entity: Entity) {
-    let mut map = self.map.write();
-    map.remove_db_mapping(world_entity);
-  }
-  pub fn db_entities(&self, entities: impl Iterator<Item = Entity>) -> Vec<(Entity, DbEntity)> {
-    let db = self.map.read();
-    entities
-      .filter_map(|e| db.db_entity(e).map(|d| (e, d)))
-      .collect()
-  }
-}
 
-impl SaveDbOwned {
-  pub async fn autoload_entities(self) -> Result<Vec<DynamicDbEntity>, BoxError> {
+  pub async fn hydrate_entities(self) -> Result<impl FnOnce(&mut World), BoxError> {
     let mut conn = self.db.acquire().await?;
-    let results = sqlx::query! {
+    let db_entities = sqlx::query!("select id from entity;")
+      .fetch(&mut *conn)
+      .map(|res| res.map(|r| DbEntity::from_index(r.id)))
+      .try_collect::<Vec<_>>()
+      .await?;
+
+    Ok(move |world: &mut World| {
+      let mut guard = self.map.write();
+      let DbEntityMap {
+        ref mut db_to_world,
+        ref mut world_to_db,
+      } = &mut *guard;
+
+      SceneEntityMapper::world_scope(db_to_world, world, |_, mapper| {
+        db_entities.into_iter().for_each(|db_ent| {
+          world_to_db.insert(mapper.map_entity(db_ent.0), db_ent.0);
+        })
+      })
+    })
+  }
+
+  pub async fn autoload_entities(self) -> Result<impl FnOnce(&mut World), BoxError> {
+    let mut conn = self.db.acquire().await?;
+    let db_entities = sqlx::query! {
       "SELECT ec.entity
       FROM entity e, component c, entity_component ec
       WHERE e.id = ec.entity
@@ -140,21 +182,34 @@ impl SaveDbOwned {
       AND c.name = 'bevy_sqlite::AutoLoad'"
     }
     .fetch(&mut *conn)
-    .map(|r| r.map(|r| DbEntity::from_index(r.entity)));
+    .map(|r| r.map(|r| DbEntity::from_index(r.entity)))
+    .try_collect::<Vec<_>>()
+    .await?;
 
-    self
-      .load_entities(results.try_collect().await?, Some(conn))
-      .await
+    let entities = self.load_entities(Some(&mut *conn), db_entities).await?;
+
+    Ok(move |world: &mut World| {
+      if !entities.is_empty() {
+        let db = SaveDbOwned::from(&*world);
+        debug!("writing {} entities to world", entities.len());
+        db.write_to_world(entities)(world)
+      } else {
+        debug!("nothing to autoload!");
+      }
+    })
   }
+
   pub async fn load_entities(
     self,
+    conn: Option<&mut SqliteConnection>,
     entities: Vec<DbEntity>,
-    conn: Option<PoolConnection<Sqlite>>,
   ) -> Result<Vec<DynamicDbEntity>, BoxError> {
-    let mut conn = if let Some(conn) = conn {
+    let mut acquired;
+    let conn = if let Some(conn) = conn {
       conn
     } else {
-      self.db.acquire().await?
+      acquired = Some(self.db.acquire().await?);
+      acquired.as_mut().unwrap()
     };
 
     let mut seen = HashSet::<DbEntity>::new();
@@ -189,7 +244,7 @@ impl SaveDbOwned {
       entity, components, ..
     } in &mut to_load
     {
-      let serialized_components = fetch_entity(&mut conn, *entity).await?;
+      let serialized_components = fetch_entity(conn, *entity).await?;
       let deserialized_components =
         deserialize_entity(&self.type_registry, &serialized_components)?;
       *components = deserialized_components;
@@ -324,15 +379,12 @@ pub struct DynamicDbEntity {
   components: Vec<Box<dyn Reflect>>,
 }
 
-async fn fetch_entity<'a, D>(
-  db: D,
+async fn fetch_entity(
+  conn: &mut SqliteConnection,
   entity: DbEntity,
-) -> Result<SerializedComponents<'static>, sqlx::Error>
-where
-  D: sqlx::Acquire<'a, Database = Sqlite>,
-{
+) -> Result<SerializedComponents<'static>, sqlx::Error> {
   debug!(?entity, "fetching entity");
-  let mut conn = db.acquire().await?;
+  let conn = conn.acquire().await?;
 
   let id = entity.to_index();
 
@@ -346,7 +398,7 @@ where
     "#,
     id,
   )
-  .fetch(&mut *conn);
+  .fetch(conn);
 
   let mut components = SerializedComponents::default();
 
@@ -357,16 +409,12 @@ where
   Ok(components)
 }
 
-async fn store_entity<'a, 'b, D>(
-  db: D,
+async fn store_entity(
+  conn: &mut SqliteConnection,
   entity: impl Into<Option<DbEntity>>,
   parent: impl Into<Option<DbEntity>>,
   components: &SerializedComponents<'_>,
-) -> Result<DbEntity, sqlx::Error>
-where
-  D: sqlx::Acquire<'a, Database = Sqlite> + 'b,
-{
-  let mut conn = db.begin().await?;
+) -> Result<DbEntity, sqlx::Error> {
   let parent_id = parent.into().map(|p| p.to_index());
   let entity_id = match entity.into() {
     Some(entity) => {
@@ -414,17 +462,11 @@ where
     .await?;
   }
 
-  conn.commit().await?;
   Ok(entity_id)
 }
 
 #[allow(dead_code)]
-async fn delete_entity<D>(db: D, entity: DbEntity) -> Result<(), sqlx::Error>
-where
-  D: for<'a> sqlx::Acquire<'a, Database = Sqlite>,
-{
-  let mut tx = db.begin().await?;
-
+async fn delete_entity(conn: &mut SqliteConnection, entity: DbEntity) -> Result<(), sqlx::Error> {
   let id = entity.to_index();
 
   sqlx::query!(
@@ -433,10 +475,8 @@ where
     "#,
     id,
   )
-  .execute(&mut *tx)
+  .execute(conn)
   .await?;
-
-  tx.commit().await?;
 
   Ok(())
 }
@@ -488,13 +528,15 @@ mod test {
       .execute(&db)
       .await?;
 
+    let mut conn = db.acquire().await?;
+
     let mut entities = test_entities(&[
       (2, &[("foo", "bar")]),
       (8, &[("foo", "baz"), ("spam", "eggs")]),
     ]);
 
     for (entity, components) in entities.iter_mut() {
-      store_entity(&db, *entity, None, components).await?;
+      store_entity(&mut conn, *entity, None, components).await?;
     }
 
     println!("entity:");
@@ -513,7 +555,8 @@ mod test {
       println!("\t{:?}", row);
     }
 
-    let entity = fetch_entity(&db, DbEntity::from_index(8)).await?;
+    let mut conn = db.acquire().await?;
+    let entity = fetch_entity(&mut conn, DbEntity::from_index(8)).await?;
     println!("{:#?}", entity);
 
     // panic!();

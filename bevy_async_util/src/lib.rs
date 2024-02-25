@@ -1,7 +1,7 @@
 use std::{
   error::Error,
-  fmt::Debug,
   future::Future,
+  marker::PhantomData,
   pin::Pin,
   task::{
     Context,
@@ -157,10 +157,65 @@ where
   block_on(poll_immediate(fut))
 }
 
+pub struct SpawnCallback<T, F, O, E> {
+  fut: F,
+  cb: O,
+  on_err: E,
+  _ph: PhantomData<fn() -> T>,
+}
+
+impl<T, F, O, E> Command for SpawnCallback<T, F, O, E>
+where
+  T: Send + 'static,
+  F: Future<Output = Result<T, BoxError>> + Send + 'static,
+  O: FnOnce(T, &mut World) + Send + Sync + 'static,
+  E: FnOnce(BoxError, &mut World) + Send + Sync + 'static,
+{
+  fn apply(self, world: &mut World) {
+    world.spawn_empty().attach_callback(
+      self.fut,
+      |v, ent, world| {
+        world.despawn(ent);
+        (self.cb)(v, world)
+      },
+      |e, ent, world| {
+        world.despawn(ent);
+        (self.on_err)(e, world)
+      },
+    );
+  }
+}
+
+pub trait CommandsExt {
+  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E)
+  where
+    T: Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
+    O: FnOnce(T, &mut World) + Send + Sync + 'static,
+    E: FnOnce(BoxError, &mut World) + Send + Sync + 'static;
+}
+
+impl CommandsExt for Commands<'_, '_> {
+  fn spawn_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E)
+  where
+    T: Send + 'static,
+    F: Future<Output = Result<T, BoxError>> + Send + 'static,
+    O: FnOnce(T, &mut World) + Send + Sync + 'static,
+    E: FnOnce(BoxError, &mut World) + Send + Sync + 'static,
+  {
+    self.add(SpawnCallback {
+      fut,
+      cb,
+      on_err,
+      _ph: PhantomData,
+    })
+  }
+}
+
 pub trait EntityCommandsExt {
   fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
-    T: Debug + Send + 'static,
+    T: Send + 'static,
     F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
     E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static;
@@ -169,7 +224,7 @@ pub trait EntityCommandsExt {
 impl EntityCommandsExt for EntityWorldMut<'_> {
   fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
-    T: Debug + Send + 'static,
+    T: Send + 'static,
     F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
     E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static,
@@ -181,7 +236,7 @@ impl EntityCommandsExt for EntityWorldMut<'_> {
     trace!(frame, "spawning async task");
     let task = rt.spawn(async move {
       let task_result = fut.await?;
-      trace!(?task_result, ?entity, "async task completed");
+      trace!(?entity, "async task completed");
       Ok(BoxCommand::new(move |world: &mut World| {
         cb(task_result, entity, world)
       }))
@@ -195,7 +250,7 @@ impl EntityCommandsExt for EntityWorldMut<'_> {
 impl EntityCommandsExt for EntityCommands<'_> {
   fn attach_callback<T, F, O, E>(&mut self, fut: F, cb: O, on_err: E) -> &mut Self
   where
-    T: Debug + Send + 'static,
+    T: Send + 'static,
     F: Future<Output = Result<T, BoxError>> + Send + 'static,
     O: FnOnce(T, Entity, &mut World) + Send + Sync + 'static,
     E: FnOnce(BoxError, Entity, &mut World) + Send + Sync + 'static,

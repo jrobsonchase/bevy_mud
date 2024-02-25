@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n      select c.name, ec.data\n      from entity_component ec\n      inner join component c\n      on ec.component = c.id\n      where ec.entity = ?\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "data",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "daa3ceb9a67e66b7591de47e7784e9f34f939a3177b8e286fc6034c16e55847f"
+}

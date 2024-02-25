@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "WITH RECURSIVE\n            children(id) as (values(?) union select e.id from entity e, children d where e.parent = d.id)\n          select id, parent from entity where entity.id in children",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "parent",
+        "ordinal": 1,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "61a27afb04e14d56706f3ac522d245a6bd0b4c9898fed65dabe29662fc896161"
+}
