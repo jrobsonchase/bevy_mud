@@ -17,7 +17,8 @@ db.sqlite:
 
 .PHONY: prepare-sqlx
 prepare-sqlx:
-	DATABASE_URL=sqlite://base-db.sqlite cargo sqlx prepare --workspace -- --all-targets
+	DATABASE_URL=sqlite://base-db.sqlite cargo sqlx prepare -- --all-targets --all-features
+	cd bevy_sqlite && DATABASE_URL=sqlite://base-db.sqlite cargo sqlx prepare -- --all-targets --all-features
 
 .PHONY: build
 build:

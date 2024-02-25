@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "select * from entity_component",
+  "describe": {
+    "columns": [
+      {
+        "name": "entity",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "component",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "data",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d5f173c101d371b05ebaff7839e96dba0d6b5dee3dcf45e632e544688b7258ec"
+}
