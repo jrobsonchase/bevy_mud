@@ -312,11 +312,16 @@ fn moving_output(
   locations: Query<&GlobalTransform>,
 ) {
   for ev in startstop_events.read() {
-    let out = try_opt!(output.get(ev.entity), continue);
-    let xform = try_opt!(locations.get(ev.entity).ok(), continue);
+    let Some(out) = output.get(ev.entity) else {
+      continue;
+    };
+    let Some(xform) = locations.get(ev.entity).ok() else {
+      continue;
+    };
 
     let start = match ev.typ {
-      MoveState::Start => "You start to",
+      // MoveState::Start => "You start to",
+      MoveState::Start => continue,
       MoveState::Finish => "You",
     };
 

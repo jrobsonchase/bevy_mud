@@ -1,5 +1,5 @@
 FEATURES = bevy/dynamic_linking,tracy
-RUST_LOG = bevy_sqlite=debug,canton=debug,info
+RUST_LOG = bevy_sqlite=debug,bevy_mud=debug,example=debug,info
 CARGO_ARGS = --release
 
 all: db.sqlite base-db.sqlite build
@@ -26,7 +26,7 @@ build:
 
 .PHONY: stop
 stop:
-	pkill canton || true
+	pkill example || true
 
 .PHONY: start
 start: build stop

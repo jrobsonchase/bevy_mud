@@ -1,18 +1,15 @@
-[workspace]
-members = ["bevy_async_util", "bevy_sqlite"]
-
 [package]
-name = "canton"
+name = "bevy_mud"
 version = "0.1.0"
 edition = "2021"
-default-run = "canton"
+default-run = "example"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 
 [dependencies]
-bevy_sqlite = { path = "./bevy_sqlite" }
-bevy_async_util = { path = "./bevy_async_util" }
+bevy_sqlite = { git= "git+ssh://git@github.com/jrobsonchase/bevy_sqlite" }
+bevy_async_util = { git = "git+ssh://git@github.com/jrobsonchase/bevy_async_util" }
 anyhow = "1.0.75"
 bevy_dylib = { version = "0.13", optional = true }
 bevy = { version = "0.13", features = [
@@ -68,3 +65,9 @@ ariadne = { version = "0.4.0", default-features = false }
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
 default = ["tracy"]
+
+# [patch.'git+ssh://git@github.com/jrobsonchase/bevy_async_util']
+# bevy_async_util = { path = "../bevy_async_util" }
+
+# [patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
+# bevy_sqlite = { path = "../bevy_sqlite" }

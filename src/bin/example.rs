@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use bevy_sqlite::Db;
-use canton::{
+use bevy_mud::{
   account::StartLogin,
   core::CorePlugin,
   negotiate,
   net::*,
 };
+use bevy_sqlite::Db;
 use clap::Parser;
 #[cfg(feature = "otel")]
 use opentelemetry_api::KeyValue;
