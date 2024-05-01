@@ -11,14 +11,26 @@ use std::{
 
 use base64::Engine as _;
 use bevy::{
-  ecs::system::SystemParam,
+  ecs::system::{
+    Command,
+    CommandQueue,
+    SystemParam,
+  },
   prelude::*,
+  reflect::GetTypeRegistration,
   utils::{
     hashbrown::HashSet,
     HashMap,
   },
 };
-use bevy_sqlite::SaveExt;
+use bevy_async_util::CommandsExt;
+use bevy_sqlite::*;
+use futures::TryStreamExt;
+use hexx::{
+  hex,
+  Hex,
+  HexLayout,
+};
 use ratatui::{
   prelude::Rect,
   widgets::Widget,
@@ -35,8 +47,11 @@ use crate::{
       Tile as TuiTile,
     },
   },
-  character::Player,
-  coords::Cubic,
+  character::{
+    Character,
+    NonPlayer,
+    Player,
+  },
   net::{
     TelnetOut,
     GMCP,
@@ -67,24 +82,25 @@ impl Plugin for MapPlugin {
       .register_type::<Color>()
       .register_type::<Option<Color>>()
       .register_type::<Modifier>()
-      .register_type::<Cubic>()
+      .register_type::<Hex>()
       .register_type::<Entities>()
       .register_type::<Dig>()
       .register_type::<MapWidget>();
 
     app.insert_resource(Maps::default());
 
-    app.add_systems(
-      PreUpdate,
-      (
-        (track_maps_system, add_global),
-        apply_deferred,
-        propagate_transforms,
-        emit_change_events,
-        render_map_system,
+    app
+      .add_systems(
+        PreUpdate,
+        (
+          (track_maps_system, add_global),
+          propagate_transforms,
+          emit_change_events,
+          render_map_system,
+        )
+          .chain(),
       )
-        .chain(),
-    );
+      .add_systems(Startup, spawn_maps.after(DbSystem));
   }
 }
 
@@ -98,13 +114,13 @@ pub struct Maps {
 #[derive(Reflect, Component, Default, Eq, PartialEq)]
 pub struct Entities {
   #[reflect(ignore)]
-  pub by_coords: HashMap<Cubic, BTreeMap<i8, Vec<Entity>>>,
+  pub by_coords: HashMap<Hex, BTreeMap<i8, Vec<Entity>>>,
   #[reflect(ignore)]
   pub by_id: HashMap<Entity, Transform>,
 }
 
 impl Entities {
-  pub fn iter_at(&self, coord: &Cubic) -> impl Iterator<Item = (i8, Entity)> + '_ {
+  pub fn iter_at(&self, coord: &Hex) -> impl Iterator<Item = (i8, Entity)> + '_ {
     self.by_coords.get(coord).into_iter().flat_map(|layers| {
       layers
         .iter()
@@ -165,7 +181,7 @@ pub struct Map(pub String);
 pub struct Transform {
   pub map: String,
   pub layer: i8,
-  pub coords: Cubic,
+  pub coords: Hex,
   pub facing: i8,
 }
 
@@ -199,6 +215,109 @@ pub struct Dig;
 #[derive(Component, Reflect, Default, Debug, Deref, DerefMut)]
 #[reflect(Component)]
 pub struct MapWidget(#[reflect(ignore)] HexMap);
+
+fn spawn_maps(mut cmd: Commands, db: SaveDbOwned) {
+  let conn = db.db.clone();
+  cmd.spawn_callback(
+    async move {
+      let map = Map::get_type_registration().type_info().type_path();
+      sqlx::query!(
+        r#"
+          select e.id
+          from entity e
+          where exists (
+            select *
+            from entity_component ec, component c
+            where ec.entity = e.id
+            and c.id = ec.component
+            and c.name = ?
+          )
+        "#,
+        map,
+      )
+      .fetch(&*conn)
+      .map_ok(|res| res.id)
+      .try_collect::<Vec<i64>>()
+      .await
+    },
+    move |res, world| {
+      load_entities(res, world);
+      let conn = world.resource::<Db>().clone();
+      let mut queue = CommandQueue::default();
+      let mut cmds = Commands::new(&mut queue, world);
+      cmds.spawn_callback(
+        async move {
+          let character = Character::get_type_registration().type_info().type_path();
+          let map = Map::get_type_registration().type_info().type_path();
+          let non_player = NonPlayer::get_type_registration().type_info().type_path();
+          sqlx::query!(
+            r#"
+              select e.id
+              from entity e
+              where ((not exists (
+                select *
+                from entity_component ec, component c
+                where ec.entity = e.id
+                and c.id = ec.component
+                and c.name = ?
+              )) or exists (
+                select *
+                from entity_component ec, component c
+                where ec.entity = e.id
+                and c.id = ec.component
+                and c.name = ?
+              )) and (not exists (
+                select *
+                from entity_component ec, component c
+                where ec.entity = e.id
+                and c.id = ec.component
+                and c.name = ?
+              ))
+            "#,
+            character,
+            non_player,
+            map,
+          )
+          .fetch(&*conn)
+          .map_ok(|res| res.id)
+          .try_collect::<Vec<i64>>()
+          .await
+        },
+        load_entities,
+      );
+      queue.apply(world);
+    },
+  );
+}
+
+fn load_entities(res: sqlx::Result<Vec<i64>>, world: &mut World) {
+  let db: SaveDbOwned = SaveDb::from_world(world).into();
+  match res {
+    Ok(entities) => {
+      debug!(?entities, "got {} entities to load", entities.len());
+      let db = db.borrowed();
+
+      for index in entities {
+        let db_entity = DbEntity::from_index(index);
+        let Some(world_entity) = db.map.read().world_entity(db_entity) else {
+          warn!(index, "missing world entity for db entity");
+          continue;
+        };
+        let Some(mut entity) = world.get_or_spawn(world_entity) else {
+          warn!(?world_entity, "entity is no longer valid");
+          continue;
+        };
+        let Some(task) = db.load_db_entity(db_entity) else {
+          continue;
+        };
+        entity.insert(task);
+      }
+    }
+    Err(error) => {
+      warn!(%error, "error looking up entities to load");
+    }
+  }
+}
 
 fn track_maps_system(
   mut cmd: Commands,
@@ -265,10 +384,16 @@ fn propagate_transform(
 ) {
   let my_xform = if let Ok((xform, mut global)) = data.get_mut(ent) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
+      let mut coords = parent.coords + xform.coords;
+      let mut d = parent.facing;
+      while d < 0 {
+        d += 6;
+      }
+      coords = coords.rotate_cw(d as _);
       Transform {
         map: parent.map.clone(),
         layer: parent.layer + xform.layer,
-        coords: (parent.coords + xform.coords).rotate(parent.facing),
+        coords,
         facing: (xform.facing + parent.facing) % 6,
       }
     } else {
@@ -331,7 +456,7 @@ fn emit_change_events(
     if rendered.contains(*entity) {
       for xform in [prev, new] {
         let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
-        for coords in xform.coords.spiral(MAP_RADIUS) {
+        for coords in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
           for other in map
             .by_coords
             .get(&coords)
@@ -379,9 +504,13 @@ fn render_map_system(
       let (_, map) = try_opt!(map_entities.by_name(&xform.map), return);
 
       widget.clear();
-      widget.center(xform.coords + Cubic(0, -1, 1).rotate(xform.facing) * 3);
+      let mut r = xform.facing;
+      while r < 0 {
+        r += 6;
+      }
+      widget.center(xform.coords + hex(0, -1).rotate_cw(r as _) * 3);
       widget.rotation(-(xform.facing));
-      for coord in xform.coords.spiral(MAP_RADIUS) {
+      for coord in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
         if !is_visible(xform, coord) {
           continue;
         }
@@ -406,6 +535,7 @@ fn render_map_system(
         x: 0,
         y: 0,
       };
+      debug!(?entity, "rendering map");
       renderer.resize(map_area);
       widget.render(map_area, &mut renderer);
       let out = out.clone();
@@ -426,15 +556,22 @@ fn render_map_system(
     });
 }
 
-fn is_visible(xform: &GlobalTransform, coord: Cubic) -> bool {
-  let dir = (coord - xform.coords)
-    .rotate(-(xform.facing))
-    .direction()
-    .abs();
+fn is_visible(xform: &GlobalTransform, coord: Hex) -> bool {
+  let layout = HexLayout::default();
+  let diff = coord - xform.coords;
+  let mut facing = -xform.facing;
+  if facing < 0 {
+    facing += 6;
+  }
+  let rotated = diff.rotate_cw(facing as _);
 
-  let dist = xform.coords.distance(coord);
+  let Vec2 { x, y } = layout.hex_to_world_pos(rotated);
 
-  if dir >= std::f32::consts::FRAC_PI_2 {
+  let angle = x.atan2(y);
+
+  let dist = xform.coords.distance_to(coord);
+
+  if angle.abs() <= std::f32::consts::FRAC_PI_2 {
     dist <= MAP_RADIUS as _
   } else {
     dist <= (MAP_RADIUS / 4) as _

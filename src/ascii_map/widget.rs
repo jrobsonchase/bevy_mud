@@ -8,6 +8,10 @@ use std::{
 
 use bevy::prelude::*;
 use bitflags::bitflags;
+use hexx::{
+  hex,
+  Hex,
+};
 use ratatui::{
   buffer::Cell,
   prelude::{
@@ -22,8 +26,6 @@ use serde::{
   Deserialize,
   Serialize,
 };
-
-use crate::coords::Cubic;
 
 pub const EDGES: [(&str, Option<&str>); 8] = [
   (".", Some(")")),
@@ -47,15 +49,15 @@ pub const EDGE_OFFSETS: [(i32, i32); 8] = [
   (1, 1),
 ];
 
-pub const EDGE_NEIGHBORS: [&[Cubic]; 8] = [
-  &[Cubic(-1, 0, 1), Cubic(0, -1, 1)],
-  &[Cubic(0, -1, 1)],
-  &[Cubic(1, -1, 0), Cubic(0, -1, 1)],
-  &[Cubic(-1, 0, 1), Cubic(-1, 1, 0)],
-  &[Cubic(1, 0, -1), Cubic(1, -1, 0)],
-  &[Cubic(0, 1, -1), Cubic(-1, 1, 0)],
-  &[Cubic(0, 1, -1)],
-  &[Cubic(0, 1, -1), Cubic(1, 0, -1)],
+pub const EDGE_NEIGHBORS: [&[Hex]; 8] = [
+  &[hex(-1, 0), hex(0, -1)],
+  &[hex(0, -1)],
+  &[hex(1, -1), hex(0, -1)],
+  &[hex(-1, 0), hex(-1, 1)],
+  &[hex(1, 0), hex(1, -1)],
+  &[hex(0, 1), hex(-1, 1)],
+  &[hex(0, 1)],
+  &[hex(0, 1), hex(1, 0)],
 ];
 
 #[derive(
@@ -262,8 +264,8 @@ impl Tile {
 #[reflect(from_reflect = false)]
 pub struct HexMap {
   #[reflect(ignore)]
-  tiles: HashMap<Cubic, Tile>,
-  center: Cubic,
+  tiles: HashMap<Hex, Tile>,
+  center: Hex,
   rotation: i8,
   radius: u8,
   render_edges: bool,
@@ -273,7 +275,7 @@ impl Default for HexMap {
   fn default() -> Self {
     HexMap {
       tiles: HashMap::default(),
-      center: Cubic(0, 0, 0),
+      center: hex(0, 0),
       rotation: 0,
       radius: 20,
       render_edges: true,
@@ -288,7 +290,7 @@ impl HexMap {
   pub fn prune(&mut self) {
     let mut out = vec![];
     for c in self.tiles.keys().copied() {
-      if self.center.distance(c) > 2 * self.radius as i64 {
+      if self.center.distance_to(c) > 2 * self.radius as i32 {
         out.push(c);
       }
     }
@@ -306,13 +308,13 @@ impl HexMap {
     self
   }
 
-  pub fn tile(&mut self, coords: Cubic) -> &mut Tile {
+  pub fn tile(&mut self, coords: Hex) -> &mut Tile {
     self.tiles.entry(coords).or_default()
   }
 
   // Insert a tile.
-  pub fn insert(&mut self, coords: Cubic, tile: Tile) {
-    if self.center.distance(coords) > 2 * self.radius as i64 {
+  pub fn insert(&mut self, coords: Hex, tile: Tile) {
+    if self.center.distance_to(coords) > 2 * self.radius as i32 {
       return;
     }
     self.tiles.insert(coords, tile);
@@ -323,7 +325,7 @@ impl HexMap {
     self
   }
 
-  pub fn center(&mut self, coords: Cubic) -> &mut Self {
+  pub fn center(&mut self, coords: Hex) -> &mut Self {
     self.center = coords;
     self
   }
@@ -339,16 +341,20 @@ impl HexMap {
     (rect.x + off_w, rect.y + off_h)
   }
 
-  fn rect_coords(&self, rect: Rect, coords: Cubic) -> Option<(u16, u16)> {
-    if self.center.distance(coords) >= self.radius as _ {
+  fn rect_coords(&self, rect: Rect, coords: Hex) -> Option<(u16, u16)> {
+    if self.center.distance_to(coords) >= self.radius as _ {
       return None;
     }
-    let coords = (coords - self.center).rotate(self.rotation);
+    let mut rotation = self.rotation;
+    while rotation < 0 {
+      rotation += 6;
+    }
+    let coords = (coords - self.center).rotate_cw(rotation as _);
     let (x, y) = self.center_coords(rect);
     let mut x = x as i32;
     let mut y = y as i32;
-    x += 3 * coords.0 as i32;
-    y += 2 * coords.1 as i32 + coords.0 as i32;
+    x += 3 * coords.x as i32;
+    y += 2 * coords.y as i32 + coords.x as i32;
     visible(rect, x, y)
   }
 }
@@ -408,9 +414,13 @@ impl<'a> Widget for &'a HexMap {
           if !visited.contains(&(x, y)) {
             visited.insert((x, y));
             if self.render_edges {
+              let mut rotation = -1 * self.rotation;
+              while rotation < 0 {
+                rotation += 6;
+              }
               let has_neighbor = EDGE_NEIGHBORS[i]
                 .iter()
-                .map(|n| hex + n.rotate(-(self.rotation)))
+                .map(|n| hex + n.rotate_cw(rotation as _))
                 .any(|h| self.rect_coords(area, h).is_some() && self.tiles.contains_key(&h));
               let c = if has_neighbor {
                 EDGES[i].1.unwrap_or(EDGES[i].0)

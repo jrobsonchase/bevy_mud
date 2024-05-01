@@ -10,8 +10,7 @@ CREATE TABLE character (
 	entity integer not null references entity(id)
 ) strict;
 CREATE TABLE entity (
-	id integer not null primary key,
-	parent integer references entity(id) on delete cascade
+	id integer not null primary key
 ) strict;
 CREATE TABLE component (
 	id integer not null primary key,

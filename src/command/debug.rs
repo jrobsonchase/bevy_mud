@@ -19,7 +19,6 @@ use bevy::{
     DynamicEntity,
   },
 };
-use bevy_sqlite::PersistComponents;
 use serde::de::DeserializeSeed;
 
 use super::{
@@ -278,13 +277,8 @@ fn dump_to_file(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let mut file = fs::File::create(filename)?;
   Ok(Box::new(move |world| {
     let out = try_opt!(world.get::<TelnetOut>(caller), return).clone();
-    let filter = world
-      .resource::<PersistComponents>()
-      .filter()
-      .allow::<Children>();
     let entities = find_entities_recursive(world, entity);
     let scene = DynamicSceneBuilder::from_world(world)
-      .with_filter(filter)
       .deny_all_resources()
       .extract_entities(entities)
       .build();

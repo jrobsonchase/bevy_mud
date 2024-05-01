@@ -9,7 +9,7 @@ use signal_hook::{
   flag,
 };
 
-use crate::core::CantonStartup;
+use crate::core::MudStartup;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Event, Debug, Copy, Clone)]
@@ -71,7 +71,7 @@ impl Plugin for SignalPlugin {
   fn build(&self, app: &mut App) {
     app
       .add_event::<Signal>()
-      .add_systems(Startup, start_handler.in_set(CantonStartup::System))
+      .add_systems(Startup, start_handler.in_set(MudStartup::System))
       .add_systems(Update, check_flag);
   }
 }

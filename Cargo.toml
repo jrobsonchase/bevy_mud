@@ -8,7 +8,7 @@ default-run = "example"
 
 
 [dependencies]
-bevy_sqlite = { git= "git+ssh://git@github.com/jrobsonchase/bevy_sqlite" }
+bevy_sqlite = { git= "git+ssh://git@github.com/jrobsonchase/bevy_sqlite", branch = "overhaul" }
 bevy_async_util = { git = "git+ssh://git@github.com/jrobsonchase/bevy_async_util" }
 anyhow = "1.0.75"
 bevy_dylib = { version = "0.13", optional = true }
@@ -22,21 +22,12 @@ bevy = { version = "0.13", features = [
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
 sqlx = { version = "0.7.3", features = [
-	"runtime-tokio",
-	"tls-rustls",
+	"runtime-async-std",
 	"sqlite",
 	"chrono",
 ] }
 tellem = "0.2.0"
-tokio = { version = "1.32.0", features = [
-	"macros",
-	"rt-multi-thread",
-	"net",
-	"io-util",
-	"tokio-macros",
-	"tracing",
-] }
-tokio-util = { version = "0.7.9", features = ["codec"] }
+tokio-util = { version = "0.7.9", features = ["codec", "compat", "io-util"] }
 tracing = { version = "0.1.37", features = ["async-await"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 bytes = "1.5.0"
@@ -48,7 +39,6 @@ serde = "1.0.189"
 ron = "0.8.1"
 ratatui = { version = "0.24.0", default-features = false }
 ansi_term = "0.12.1"
-ngrok = { version = "0.14.0-pre.8" }
 tracing-tracy = { version = "0.10.4", features = ["ondemand"], optional = true }
 tracing-error = "0.2.0"
 tracy-client = { version = "0.16.3", optional = true }
@@ -60,14 +50,18 @@ lz4 = "1.24.0"
 zstd = "0.13.0"
 chumsky = "1.0.0-alpha.7"
 ariadne = { version = "0.4.0", default-features = false }
+async-std = "1.12.0"
+tokio = "1.37.0"
+async-compat = "0.2.3"
+hexx = { version = "0.17.0", features = ["bevy_reflect", "serde"] }
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
 default = ["tracy"]
 
-# [patch.'git+ssh://git@github.com/jrobsonchase/bevy_async_util']
-# bevy_async_util = { path = "../bevy_async_util" }
+[patch.'git+ssh://git@github.com/jrobsonchase/bevy_async_util']
+bevy_async_util = { path = "../bevy_async_util" }
 
-# [patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
-# bevy_sqlite = { path = "../bevy_sqlite" }
+[patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
+bevy_sqlite = { path = "../bevy_sqlite" }

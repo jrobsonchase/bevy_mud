@@ -1,5 +1,4 @@
 use std::{
-  env,
   fmt::{
     Debug,
     Write,
@@ -7,19 +6,19 @@ use std::{
   net::SocketAddr,
 };
 
+use async_std::{
+  net::TcpListener,
+  task::block_on,
+};
 use bevy::{
   app::AppExit,
   prelude::*,
+  tasks::IoTaskPool,
 };
-use bevy_async_util::AsyncRuntime;
 use bytes::BytesMut;
 use futures::{
   prelude::*,
   StreamExt,
-};
-use ngrok::prelude::{
-  ConnInfo,
-  TunnelBuilder,
 };
 use tellem::{
   Cmd,
@@ -33,8 +32,6 @@ use tokio::{
     AsyncWrite,
     BufStream,
   },
-  net::TcpListener,
-  runtime::Handle,
   sync::mpsc::{
     self,
     error::TryRecvError,
@@ -43,7 +40,10 @@ use tokio::{
   },
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_util::codec::Decoder;
+use tokio_util::{
+  codec::Decoder,
+  compat::FuturesAsyncReadCompatExt,
+};
 use tracing::{
   info,
   instrument,
@@ -51,7 +51,7 @@ use tracing::{
 };
 
 use crate::{
-  core::CantonStartup,
+  core::MudStartup,
   oneshot::run_system,
   util::HierEntity,
 };
@@ -95,7 +95,7 @@ impl Plugin for TelnetPlugin {
       .register_type::<TelnetOut>()
       .register_type::<Listener>()
       .register_type::<ClientConn>()
-      .add_systems(Startup, start_listener.in_set(CantonStartup::Io))
+      .add_systems(Startup, start_listener.in_set(MudStartup::Io))
       .add_systems(First, new_conns)
       .add_systems(First, telnet_handler)
       .add_systems(Last, reap_conns)
@@ -126,67 +126,29 @@ impl Default for Listener {
   }
 }
 
-fn start_ngrok(rt: &AsyncRuntime, domain: &str) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
-  let mut l = rt.block_on(async move {
-    Ok::<_, anyhow::Error>(
-      ngrok::Session::builder()
-        .authtoken_from_env()
-        .connect()
-        .await?
-        .tls_endpoint()
-        .domain(domain)
-        .termination(Default::default(), Default::default())
-        .listen()
-        .await?,
-    )
-  })?;
-
-  info!(domain, "started ngrok tls listener");
-  let (new_tx, new_rx) = mpsc::unbounded_channel();
-
-  let h = rt.handle();
-
-  rt.spawn(async move {
-    while let Some(Ok(conn)) = l.next().await {
-      let addr = conn.remote_addr();
-      if new_tx.send(handle_conn(&h, conn, addr)?).is_err() {
-        break;
-      }
-    }
-    Ok(())
-  });
-
-  Ok(new_rx)
-}
-
-fn start_tcp(rt: &AsyncRuntime, port: u32) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
-  let l = rt.block_on(TcpListener::bind(format!("0.0.0.0:{port}")))?;
+fn start_tcp(port: u32) -> anyhow::Result<UnboundedReceiver<ClientBundle>> {
+  let l = block_on(TcpListener::bind(format!("0.0.0.0:{port}")))?;
   info!(port, "started tcp listener");
   let (new_tx, new_rx) = mpsc::unbounded_channel();
 
-  let h = rt.handle();
-
-  rt.spawn(async move {
-    while let Ok((conn, addr)) = l.accept().await {
-      if new_tx.send(handle_conn(&h, conn, addr)?).is_err() {
-        break;
+  IoTaskPool::get()
+    .spawn(async move {
+      while let Ok((conn, addr)) = l.accept().await {
+        if new_tx.send(handle_conn(conn.compat(), addr)?).is_err() {
+          break;
+        }
       }
-    }
-    Ok(())
-  });
+      anyhow::Ok(())
+    })
+    .detach();
 
   Ok(new_rx)
 }
 
-fn start_listener(
-  arg: Res<PortArg>,
-  rt: Res<AsyncRuntime>,
-  mut commands: Commands,
-  mut exit: EventWriter<AppExit>,
-) {
+fn start_listener(arg: Res<PortArg>, mut cmd: Commands, mut exit: EventWriter<AppExit>) {
   let port = arg.0;
 
-  let res = start_tcp(&rt, port);
+  let res = start_tcp(port);
   let l = match res {
     Ok(l) => l,
     Err(err) => {
@@ -195,19 +157,9 @@ fn start_listener(
       return;
     }
   };
-  commands.spawn((Listener { port }, NewConns { channel: l }));
-
-  if env::var("NGROK_AUTHTOKEN").is_ok() && env::var("NGROK_DOMAIN").is_ok() {
-    let res = start_ngrok(&rt, env::var("NGROK_DOMAIN").unwrap().as_str());
-    let l = match res {
-      Ok(l) => l,
-      Err(err) => {
-        warn!(?err, "failed to start ngrok listener.");
-        return;
-      }
-    };
-    commands.spawn(NewConns { channel: l });
-  }
+  debug!("adding listener spawn command");
+  let listener_id = cmd.spawn((Listener { port }, NewConns { channel: l })).id();
+  debug!(?listener_id, "spawning listener");
 }
 
 #[derive(Component, Reflect)]
@@ -379,7 +331,7 @@ struct ClientBundle {
   output: TelnetOut,
 }
 
-fn handle_conn<C>(rt: &Handle, conn: C, remote_addr: SocketAddr) -> anyhow::Result<ClientBundle>
+fn handle_conn<C>(conn: C, remote_addr: SocketAddr) -> anyhow::Result<ClientBundle>
 where
   C: AsyncRead + AsyncWrite + Send + 'static,
 {
@@ -400,51 +352,55 @@ where
     .framed(BufStream::new(conn))
     .split();
 
-  rt.spawn(
-    async move {
-      let mut tread = tread;
-      let mut buffer = BytesMut::new();
-      'read: while let Some(res) = tread.next().await {
-        let event = match res {
-          Ok(Event::Data(data)) => {
-            buffer.extend_from_slice(&data);
-            while let Some(i) = buffer.iter().position(|b| *b == b'\n') {
-              let mut line = buffer.split_to(i + 1);
-              while let Some(b'\r' | b'\n') = line.last() {
-                line.truncate(line.len() - 1);
+  IoTaskPool::get()
+    .spawn(
+      async move {
+        let mut tread = tread;
+        let mut buffer = BytesMut::new();
+        'read: while let Some(res) = tread.next().await {
+          let event = match res {
+            Ok(Event::Data(data)) => {
+              buffer.extend_from_slice(&data);
+              while let Some(i) = buffer.iter().position(|b| *b == b'\n') {
+                let mut line = buffer.split_to(i + 1);
+                while let Some(b'\r' | b'\n') = line.last() {
+                  line.truncate(line.len() - 1);
+                }
+                if read_tx.send(Event::Data(line)).is_err() {
+                  break 'read;
+                }
               }
-              if read_tx.send(Event::Data(line)).is_err() {
-                break 'read;
-              }
+              continue;
             }
-            continue;
-          }
-          Ok(event) => event,
-          Err(err) => {
-            debug!(?err, "error reading from client stream");
+            Ok(event) => event,
+            Err(err) => {
+              debug!(?err, "error reading from client stream");
+              break;
+            }
+          };
+          if read_tx.send(event).is_err() {
             break;
           }
-        };
-        if read_tx.send(event).is_err() {
-          break;
         }
+        debug!("client read task exit");
+        Ok::<(), anyhow::Error>(())
       }
-      debug!("client read task exit");
-      Ok::<(), anyhow::Error>(())
-    }
-    .in_current_span(),
-  );
-  rt.spawn(
-    async move {
-      let mut twrite = twrite;
-      let write_rx = UnboundedReceiverStream::new(write_rx);
-      write_rx.map(Ok).forward(&mut twrite).await?;
-      twrite.flush().await?;
-      twrite.close().await?;
-      Ok::<(), anyhow::Error>(())
-    }
-    .in_current_span(),
-  );
+      .in_current_span(),
+    )
+    .detach();
+  IoTaskPool::get()
+    .spawn(
+      async move {
+        let mut twrite = twrite;
+        let write_rx = UnboundedReceiverStream::new(write_rx);
+        write_rx.map(Ok).forward(&mut twrite).await?;
+        twrite.flush().await?;
+        twrite.close().await?;
+        Ok::<(), anyhow::Error>(())
+      }
+      .in_current_span(),
+    )
+    .detach();
   Ok(bundle)
 }
 
@@ -455,6 +411,7 @@ fn new_conns(mut cmd: Commands, mut query: Query<(Entity, &mut NewConns, Option<
       Ok(v) => v,
       Err(TryRecvError::Empty) => continue,
       Err(TryRecvError::Disconnected) => {
+        warn!("listener closed, restarting it");
         for child in children.iter().flat_map(|c| c.iter()) {
           cmd.entity(*child).remove_parent();
         }

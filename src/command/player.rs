@@ -1,3 +1,7 @@
+use hexx::{
+  hex,
+  EdgeDirection,
+};
 use tracing::warn;
 
 use super::{
@@ -11,7 +15,6 @@ use crate::{
     StopEvent,
   },
   character::Puppet,
-  coords::DIRECTIONS,
   movement::MoveAction,
   net::TelnetOut,
 };
@@ -57,7 +60,7 @@ fn turn_direction(off: i8) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComman
   }
 }
 
-fn move_relative(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
+fn move_relative(dir: EdgeDirection) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
   move |args| {
     Ok(Box::new(move |world| {
       let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
@@ -65,14 +68,14 @@ fn move_relative(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComm
         warn!(?entity, "entity has no queue!");
         return;
       });
-      queue.push_back(Box::new(MoveAction::MoveRelative(DIRECTIONS[dir])));
+      queue.push_back(Box::new(MoveAction::MoveRelative(hex(0, 0) + dir)));
       let out = try_opt!(world.get::<TelnetOut>(args.caller.unwrap()), return);
       out.line("Adding movement to queue.");
     }))
   }
 }
 
-fn move_absolute(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
+fn move_absolute(dir: EdgeDirection) -> impl Fn(CommandArgs) -> anyhow::Result<WorldCommand> {
   move |args| {
     Ok(Box::new(move |world| {
       let entity = world.get::<Puppet>(args.caller.unwrap()).unwrap().0;
@@ -80,7 +83,7 @@ fn move_absolute(dir: usize) -> impl Fn(CommandArgs) -> anyhow::Result<WorldComm
         warn!(?entity, "entity has no queue!");
         return;
       });
-      queue.push_back(Box::new(MoveAction::MoveAbsolute(DIRECTIONS[dir])));
+      queue.push_back(Box::new(MoveAction::MoveAbsolute(hex(0, 0) + dir)));
       let out = try_opt!(world.get::<TelnetOut>(args.caller.unwrap()), return);
       out.line("Adding movement to queue.");
     }))
@@ -104,21 +107,21 @@ fn stop(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   }))
 }
 
-const N: usize = 2;
-const NE: usize = 1;
-const SE: usize = 0;
-const S: usize = 5;
-const SW: usize = 4;
-const NW: usize = 3;
+const N: EdgeDirection = EdgeDirection::FLAT_NORTH;
+const NE: EdgeDirection = EdgeDirection::FLAT_NORTH_EAST;
+const SE: EdgeDirection = EdgeDirection::FLAT_SOUTH_EAST;
+const S: EdgeDirection = EdgeDirection::FLAT_SOUTH;
+const SW: EdgeDirection = EdgeDirection::FLAT_SOUTH_WEST;
+const NW: EdgeDirection = EdgeDirection::FLAT_NORTH_WEST;
 
 command_set! { PlayerCommands =>
   ("who", who),
-  ("forward", move_relative(2)),
-  ("forwardright", move_relative(1)),
-  ("forwardleft", move_relative(3)),
-  ("backward", move_relative(5)),
-  ("backwardright", move_relative(0)),
-  ("backwardleft", move_relative(4)),
+  ("forward", move_relative(EdgeDirection::FLAT_NORTH)),
+  ("forwardright", move_relative(EdgeDirection::FLAT_NORTH_EAST)),
+  ("forwardleft", move_relative(EdgeDirection::FLAT_NORTH_WEST)),
+  ("backward", move_relative(EdgeDirection::FLAT_SOUTH)),
+  ("backwardright", move_relative(EdgeDirection::FLAT_SOUTH_EAST)),
+  ("backwardleft", move_relative(EdgeDirection::FLAT_SOUTH_WEST)),
   ("right", turn_direction(1)),
   ("left", turn_direction(-1)),
   ("north", move_absolute(N)),

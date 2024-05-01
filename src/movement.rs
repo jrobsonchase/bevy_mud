@@ -13,7 +13,12 @@ use bevy::{
   ecs::system::EntityCommands,
   prelude::*,
 };
-use bevy_sqlite::SaveExt;
+use bevy_sqlite::*;
+use hexx::{
+  hex,
+  EdgeDirection,
+  Hex,
+};
 
 use crate::{
   action::{
@@ -21,10 +26,6 @@ use crate::{
     Busy,
     Queue,
     StopEvent,
-  },
-  coords::{
-    Cubic,
-    DIRECTIONS,
   },
   map::{
     GlobalTransform,
@@ -137,8 +138,8 @@ pub struct Moving;
 #[derive(Component, Debug, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub enum MoveAction {
-  MoveAbsolute(Cubic),
-  MoveRelative(Cubic),
+  MoveAbsolute(Hex),
+  MoveRelative(Hex),
   Turn(i8),
 }
 
@@ -146,20 +147,32 @@ impl MoveAction {
   #[allow(dead_code)]
   fn to_absolute(self, facing: i8) -> Self {
     match self {
-      Self::MoveRelative(coords) => Self::MoveAbsolute(coords.rotate(facing)),
+      Self::MoveRelative(coords) => Self::MoveAbsolute(coords.rotate_cw({
+        let mut facing = facing;
+        while facing < 0 {
+          facing += 6;
+        }
+        facing as _
+      })),
       other => other,
     }
   }
   fn to_relative(self, facing: i8) -> Self {
     match self {
-      Self::MoveAbsolute(coords) => Self::MoveRelative(coords.rotate(-(facing))),
+      Self::MoveAbsolute(coords) => Self::MoveRelative(coords.rotate_cw({
+        let mut facing = -(facing);
+        while facing < 0 {
+          facing += 6;
+        }
+        facing as _
+      })),
       other => other,
     }
   }
   fn debt(&self) -> MoveDebt {
     match self {
       Self::MoveAbsolute(off) | Self::MoveRelative(off) => MoveDebt {
-        movement: Cubic::default().distance(*off) as f32,
+        movement: Hex::default().distance_to(*off) as f32,
         rotation: 0f32,
       },
       Self::Turn(rot) => MoveDebt {
@@ -172,7 +185,7 @@ impl MoveAction {
 
 impl Default for MoveAction {
   fn default() -> Self {
-    MoveAction::MoveRelative(DIRECTIONS[2])
+    MoveAction::MoveRelative(hex(0, 0) + hexx::EdgeDirection::FLAT_NORTH)
   }
 }
 
@@ -255,8 +268,11 @@ fn movement_system(
           true
         }
         MoveAction::MoveRelative(off) if debt.movement == 0f32 => {
-          let facing = xform.facing;
-          xform.coords += off.rotate(facing);
+          let mut facing = xform.facing;
+          while facing < 0 {
+            facing += 6;
+          }
+          xform.coords += off.rotate_cw(facing as _);
           true
         }
         MoveAction::Turn(dir) if debt.rotation <= 0f32 => {
@@ -299,11 +315,11 @@ fn movement_system(
 
 const HUMAN_DIRECTIONS: [&str; 6] = [
   "backward and to your right",
-  "forward and to your right",
-  "forward",
-  "forward and to your left",
-  "backward and to your left",
   "backward",
+  "backward and to your left",
+  "forward and to your left",
+  "forward",
+  "forward and to your right",
 ];
 
 fn moving_output(
@@ -340,7 +356,7 @@ fn moving_output(
           .iter()
           .enumerate()
           .find_map(|(i, msg)| {
-            if coords == DIRECTIONS[i] {
+            if hex(0, 0).main_direction_to(coords) == EdgeDirection::ALL_DIRECTIONS[i] {
               Some(*msg)
             } else {
               None

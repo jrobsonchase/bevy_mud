@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use bevy::ecs::entity::Entity;
+use hexx::hex;
 
 use super::{
   debug::DebugCommands,
@@ -8,7 +9,6 @@ use super::{
   WorldCommand,
 };
 use crate::{
-  coords::Cubic,
   map::Transform,
   net::TelnetOut,
 };
@@ -73,11 +73,7 @@ fn move_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
 
   let entity_id = Entity::from_bits(cmd_args[0].parse::<u64>()?);
 
-  let coords = Cubic(
-    cmd_args[1].parse::<i64>()?,
-    cmd_args[2].parse::<i64>()?,
-    cmd_args[3].parse::<i64>()?,
-  );
+  let coords = hex(cmd_args[1].parse()?, cmd_args[2].parse()?);
 
   Ok(Box::new(move |world| {
     let out = world
@@ -117,11 +113,7 @@ fn teleport_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
 
   let entity_id = Entity::from_bits(cmd_args[0].parse::<u64>()?);
 
-  let coords = Cubic(
-    cmd_args[1].parse::<i64>()?,
-    cmd_args[2].parse::<i64>()?,
-    cmd_args[3].parse::<i64>()?,
-  );
+  let coords = hex(cmd_args[1].parse()?, cmd_args[2].parse()?);
 
   let map_name = Some(cmd_args[4..].join(" "))
     .filter(|s| !s.is_empty())

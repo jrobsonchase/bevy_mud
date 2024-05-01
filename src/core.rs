@@ -11,9 +11,8 @@ use bevy::{
   diagnostic::DiagnosticsPlugin,
   prelude::*,
 };
-use bevy_async_util::AsyncPlugin;
-use bevy_sqlite::SaveStatePlugin;
-use tokio::runtime::Handle;
+use bevy_async_util::CallbackPlugin;
+use bevy_sqlite::*;
 use tracing::Level;
 use tracing_subscriber::{
   prelude::*,
@@ -37,47 +36,30 @@ use crate::{
 };
 
 #[derive(SystemSet, Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum CantonStartup {
+pub enum MudStartup {
   System,
   Io,
   World,
 }
 
 #[derive(SystemSet, Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum CantonUpdate {
+pub enum MudUpdate {
   Input,
   Resolve,
   Output,
 }
 
-#[derive(Default)]
-pub struct CorePlugin(Option<Handle>);
-
-impl CorePlugin {
-  pub fn with_runtime(handle: Handle) -> Self {
-    Self(Some(handle))
-  }
-}
+pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
   fn build(&self, app: &mut App) {
     app.configure_sets(
       Startup,
-      (
-        CantonStartup::System,
-        CantonStartup::Io,
-        CantonStartup::World,
-      )
-        .chain(),
+      (MudStartup::System, MudStartup::Io, MudStartup::World).chain(),
     );
     app.configure_sets(
       Update,
-      (
-        CantonUpdate::Input,
-        CantonUpdate::Resolve,
-        CantonUpdate::Output,
-      )
-        .chain(),
+      (MudUpdate::Input, MudUpdate::Resolve, MudUpdate::Output).chain(),
     );
 
     app.add_plugins((
@@ -94,11 +76,7 @@ impl Plugin for CorePlugin {
 
     app.add_systems(Update, signal_handler);
 
-    app.add_plugins((
-      AsyncPlugin::new(self.0.clone()),
-      SaveStatePlugin,
-      TelnetPlugin,
-    ));
+    app.add_plugins((CallbackPlugin, SqlitePlugin, TelnetPlugin));
 
     app.add_plugins(CharacterPlugin);
     app.add_plugins(MapPlugin);

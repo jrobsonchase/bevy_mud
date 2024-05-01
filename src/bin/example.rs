@@ -45,20 +45,11 @@ impl Plugin for Args {
 fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
-  let rt = tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-
   let mut app = App::new();
 
-  {
-    let rt = rt.enter();
-    app.insert_resource(Db::connect_lazy("sqlite://db.sqlite").expect("failed to open database"));
-    drop(rt);
-  }
+  app.insert_resource(Db::connect_lazy("sqlite://db.sqlite").expect("failed to open database"));
 
-  app.add_plugins(CorePlugin::with_runtime(rt.handle().clone()));
+  app.add_plugins(CorePlugin);
 
   app.add_plugins(args);
 

@@ -2,10 +2,7 @@ use bevy::{
   prelude::*,
   utils::HashSet,
 };
-use bevy_sqlite::{
-  SaveExt,
-  Unload,
-};
+use bevy_sqlite::*;
 
 use crate::{
   action::Queue,
@@ -66,19 +63,24 @@ impl Plugin for CharacterPlugin {
 }
 
 #[derive(Bundle, Default)]
-pub struct CharacterBundle {
+pub struct NewCharacterBundle {
+  base: CharacterBundle,
   character: Character,
-  queue: Queue,
   speed: Speed,
+}
+
+#[derive(Bundle, Default)]
+pub struct CharacterBundle {
+  queue: Queue,
 }
 
 fn despawn_system(
   mut cmd: Commands,
-  query: Query<(Entity, &Character), (Without<Player>, Without<NonPlayer>, Without<Unload>)>,
+  query: Query<(Entity, &Character), (Without<Player>, Without<NonPlayer>, Without<Despawn>)>,
 ) {
   for (ent, _) in query.iter() {
     debug!(?ent, "unloading controllerless character");
-    cmd.entity(ent).insert(Unload);
+    cmd.entity(ent).insert(Despawn);
   }
 }
 
