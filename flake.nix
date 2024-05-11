@@ -44,7 +44,11 @@
     in
     {
       inherit cargoWorkspace;
-      packages.default = cargoWorkspace.workspaceMembers.bevy_mud.build;
+      packages = {
+        default = cargoWorkspace.workspaceMembers.bevy_mud.build;
+        bevy_sqlite = cargoWorkspace.workspaceMembers.bevy_sqlite.build;
+        bevy_async_util = cargoWorkspace.workspaceMembers.bevy_async_util.build;
+      };
       devShells.default = pkgs.mkShell {
         inputsFrom = [
           cargoWorkspace.workspaceMembers.bevy_mud.build
