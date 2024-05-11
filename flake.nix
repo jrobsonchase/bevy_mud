@@ -30,26 +30,33 @@
         buildRustCrateForPkgs = pkgs: with pkgs; buildRustCrate.override {
           rustc = fenix.complete.rustc;
           cargo = fenix.complete.cargo;
+          defaultCrateOverrides = pkgs.defaultCrateOverrides // {
+            bevy_mud = attrs: {
+              SQLX_OFFLINE_DIR = ".sqlx";
+            };
+            bevy_sqlite = attrs: {
+              SQLX_OFFLINE_DIR = ".sqlx";
+            };
+          };
         };
       };
 
     in
     {
-      # inherit cargoWorkspace;
-      # packages.default = cargoWorkspace.rootCrate.build;
+      inherit cargoWorkspace;
+      packages.default = cargoWorkspace.workspaceMembers.bevy_mud.build;
       devShells.default = pkgs.mkShell {
-        # inputsFrom = [
-        #   cargoWorkspace.rootCrate.build
-        # ];
+        inputsFrom = [
+          cargoWorkspace.workspaceMembers.bevy_mud.build
+        ];
         buildInputs = with pkgs; [
           lua-language-server
           sqlite-wrapped
           tintin
+          sqlx-cli
           rust-analyzer-nightly
           fenix.complete.clippy
           fenix.complete.rustfmt
-          fenix.complete.rustc
-          fenix.complete.cargo
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         RUST_BACKTRACE = "true";

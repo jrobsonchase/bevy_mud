@@ -146,7 +146,7 @@ impl Plugin for LogPlugin {
       .pretty()
       .with_writer(std::io::stderr);
 
-    // canton::framerate logs a `tracy.frame_mark` event every frame
+    // bevy_mud::framerate logs a `tracy.frame_mark` event every frame
     // at Level::INFO. Formatted logs should omit it.
     #[cfg(feature = "tracy")]
     let fmt_layer = fmt_layer.with_filter(tracing_subscriber::filter::FilterFn::new(|meta| {

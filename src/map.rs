@@ -1,4 +1,4 @@
-//! # The Canton Map System
+//! # The Mud Map System
 //!
 //! Who knows if this is anywhere near correct/final.
 //!

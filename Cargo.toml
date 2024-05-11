@@ -1,3 +1,9 @@
+[workspace]
+members = [
+	"bevy_sqlite",
+	"bevy_async_util",
+]
+
 [package]
 name = "bevy_mud"
 version = "0.1.0"
@@ -6,10 +12,9 @@ default-run = "example"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-
 [dependencies]
-bevy_sqlite = { git= "git+ssh://git@github.com/jrobsonchase/bevy_sqlite", branch = "overhaul" }
-bevy_async_util = { git = "git+ssh://git@github.com/jrobsonchase/bevy_async_util" }
+bevy_sqlite = { path = "./bevy_sqlite" }
+bevy_async_util = { path = "./bevy_async_util" }
 anyhow = "1.0.75"
 bevy_dylib = { version = "0.13", optional = true }
 bevy = { version = "0.13", features = [
@@ -61,7 +66,7 @@ tracy = ["tracing-tracy"]
 default = ["tracy"]
 
 [patch.'git+ssh://git@github.com/jrobsonchase/bevy_async_util']
-bevy_async_util = { path = "../bevy_async_util" }
+bevy_async_util = { path = "./bevy_async_util" }
 
 [patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
-bevy_sqlite = { path = "../bevy_sqlite" }
+bevy_sqlite = { path = "./bevy_sqlite" }
