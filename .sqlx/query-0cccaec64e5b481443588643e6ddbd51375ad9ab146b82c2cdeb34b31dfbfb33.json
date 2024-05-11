@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n          select e.id\n          from entity e\n          where exists (\n            select *\n            from entity_component ec, component c\n            where ec.entity = e.id\n            and c.id = ec.component\n            and c.name = ?\n          )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0cccaec64e5b481443588643e6ddbd51375ad9ab146b82c2cdeb34b31dfbfb33"
+}

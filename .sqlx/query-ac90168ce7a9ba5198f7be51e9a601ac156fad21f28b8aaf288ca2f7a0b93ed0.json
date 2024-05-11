@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n              select e.id\n              from entity e\n              where ((not exists (\n                select *\n                from entity_component ec, component c\n                where ec.entity = e.id\n                and c.id = ec.component\n                and c.name = ?\n              )) or exists (\n                select *\n                from entity_component ec, component c\n                where ec.entity = e.id\n                and c.id = ec.component\n                and c.name = ?\n              )) and (not exists (\n                select *\n                from entity_component ec, component c\n                where ec.entity = e.id\n                and c.id = ec.component\n                and c.name = ?\n              ))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ac90168ce7a9ba5198f7be51e9a601ac156fad21f28b8aaf288ca2f7a0b93ed0"
+}
