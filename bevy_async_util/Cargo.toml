@@ -1,0 +1,7 @@
+[package]
+name = "bevy_async_util"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.13", features = ["multi-threaded"], default-features = false }
