@@ -3,6 +3,7 @@ members = [
 	"bevy_sqlite",
 	"bevy_async_util",
 	"bevy_piccolo",
+	"piccolo",
 ]
 
 [package]
