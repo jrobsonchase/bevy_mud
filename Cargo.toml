@@ -2,6 +2,7 @@
 members = [
 	"bevy_sqlite",
 	"bevy_async_util",
+	"bevy_piccolo",
 ]
 
 [package]
@@ -15,6 +16,7 @@ default-run = "example"
 [dependencies]
 bevy_sqlite = { path = "./bevy_sqlite" }
 bevy_async_util = { path = "./bevy_async_util" }
+bevy_piccolo = { path = "./bevy_piccolo" }
 anyhow = "1.0.75"
 bevy_dylib = { version = "0.13", optional = true }
 bevy = { version = "0.13", features = [
@@ -70,3 +72,7 @@ bevy_async_util = { path = "./bevy_async_util" }
 
 [patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
 bevy_sqlite = { path = "./bevy_sqlite" }
+
+[patch.crates-io]
+piccolo = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
+piccolo-util = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
