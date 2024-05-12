@@ -98,7 +98,8 @@ impl Plugin for MapPlugin {
           emit_change_events,
           render_map_system,
         )
-          .chain(),
+          .chain()
+          .after(DbSystem),
       )
       .add_systems(Startup, spawn_maps.after(DbSystem));
   }
