@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use bitflags::bitflags;
 use hexx::{
   hex,
+  EdgeDirection,
   Hex,
 };
 use ratatui::{
@@ -50,14 +51,32 @@ pub const EDGE_OFFSETS: [(i32, i32); 8] = [
 ];
 
 pub const EDGE_NEIGHBORS: [&[Hex]; 8] = [
-  &[hex(-1, 0), hex(0, -1)],
-  &[hex(0, -1)],
-  &[hex(1, -1), hex(0, -1)],
-  &[hex(-1, 0), hex(-1, 1)],
-  &[hex(1, 0), hex(1, -1)],
-  &[hex(0, 1), hex(-1, 1)],
-  &[hex(0, 1)],
-  &[hex(0, 1), hex(1, 0)],
+  &[
+    EdgeDirection::FLAT_TOP_LEFT.into_hex(),
+    EdgeDirection::FLAT_TOP.into_hex(),
+  ],
+  &[EdgeDirection::FLAT_TOP.into_hex()],
+  &[
+    EdgeDirection::FLAT_TOP.into_hex(),
+    EdgeDirection::FLAT_TOP_RIGHT.into_hex(),
+  ],
+  &[
+    EdgeDirection::FLAT_TOP_LEFT.into_hex(),
+    EdgeDirection::FLAT_BOTTOM_LEFT.into_hex(),
+  ],
+  &[
+    EdgeDirection::FLAT_TOP_RIGHT.into_hex(),
+    EdgeDirection::FLAT_BOTTOM_RIGHT.into_hex(),
+  ],
+  &[
+    EdgeDirection::FLAT_BOTTOM_LEFT.into_hex(),
+    EdgeDirection::FLAT_BOTTOM.into_hex(),
+  ],
+  &[EdgeDirection::FLAT_BOTTOM.into_hex()],
+  &[
+    EdgeDirection::FLAT_BOTTOM.into_hex(),
+    EdgeDirection::FLAT_BOTTOM_RIGHT.into_hex(),
+  ],
 ];
 
 #[derive(
@@ -266,7 +285,7 @@ pub struct HexMap {
   #[reflect(ignore)]
   tiles: HashMap<Hex, Tile>,
   center: Hex,
-  rotation: i8,
+  rotation: EdgeDirection,
   radius: u8,
   render_edges: bool,
 }
@@ -276,7 +295,7 @@ impl Default for HexMap {
     HexMap {
       tiles: HashMap::default(),
       center: hex(0, 0),
-      rotation: 0,
+      rotation: EdgeDirection::ALL_DIRECTIONS[0],
       radius: 20,
       render_edges: true,
     }
@@ -321,7 +340,11 @@ impl HexMap {
   }
 
   pub fn rotation(&mut self, rotation: i8) -> &mut Self {
-    self.rotation = rotation;
+    if rotation < 0 {
+      self.rotation = EdgeDirection::ALL_DIRECTIONS[0].rotate_ccw(rotation.abs() as u8);
+    } else {
+      self.rotation = EdgeDirection::ALL_DIRECTIONS[0].rotate_cw(rotation as u8);
+    }
     self
   }
 
@@ -345,11 +368,7 @@ impl HexMap {
     if self.center.distance_to(coords) >= self.radius as _ {
       return None;
     }
-    let mut rotation = self.rotation;
-    while rotation < 0 {
-      rotation += 6;
-    }
-    let coords = (coords - self.center).rotate_cw(rotation as _);
+    let coords = (coords - self.center).rotate_cw(self.rotation.index() as _);
     let (x, y) = self.center_coords(rect);
     let mut x = x as i32;
     let mut y = y as i32;
@@ -406,21 +425,15 @@ impl<'a> Widget for &'a HexMap {
         }
 
         for (i, (x_off, y_off)) in EDGE_OFFSETS.into_iter().enumerate() {
-          let (x, y) = if let Some((x, y)) = visible(area, x as i32 + x_off, y as i32 + y_off) {
-            (x, y)
-          } else {
+          let Some((x, y)) = visible(area, x as i32 + x_off, y as i32 + y_off) else {
             continue;
           };
           if !visited.contains(&(x, y)) {
             visited.insert((x, y));
             if self.render_edges {
-              let mut rotation = -1 * self.rotation;
-              while rotation < 0 {
-                rotation += 6;
-              }
               let has_neighbor = EDGE_NEIGHBORS[i]
                 .iter()
-                .map(|n| hex + n.rotate_cw(rotation as _))
+                .map(|n| hex + n.rotate_ccw(self.rotation.index() as u32))
                 .any(|h| self.rect_coords(area, h).is_some() && self.tiles.contains_key(&h));
               let c = if has_neighbor {
                 EDGES[i].1.unwrap_or(EDGES[i].0)
