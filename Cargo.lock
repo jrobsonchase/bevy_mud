@@ -2618,7 +2618,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.5",
 ]
 
 [[package]]
@@ -3174,7 +3174,6 @@ dependencies = [
 [[package]]
 name = "piccolo"
 version = "0.3.1"
-source = "git+https://github.com/jrobsonchase/piccolo?branch=develop#6e361f3d1032af2d4c450d8d8f5b91150db6f62e"
 dependencies = [
  "ahash",
  "allocator-api2",
@@ -3189,7 +3188,6 @@ dependencies = [
 [[package]]
 name = "piccolo-util"
 version = "0.3.1"
-source = "git+https://github.com/jrobsonchase/piccolo?branch=develop#6e361f3d1032af2d4c450d8d8f5b91150db6f62e"
 dependencies = [
  "gc-arena",
  "parking_lot",

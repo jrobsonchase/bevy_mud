@@ -67,12 +67,12 @@ tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
 default = ["tracy"]
 
-[patch.'git+ssh://git@github.com/jrobsonchase/bevy_async_util']
+[patch.'https://github.com/jrobsonchase/bevy_async_util']
 bevy_async_util = { path = "./bevy_async_util" }
 
-[patch.'git+ssh://git@github.com/jrobsonchase/bevy_sqlite']
+[patch.'https://github.com/jrobsonchase/bevy_sqlite']
 bevy_sqlite = { path = "./bevy_sqlite" }
 
-[patch.crates-io]
-piccolo = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
-piccolo-util = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
+[patch.'https://github.com/jrobsonchase/piccolo']
+piccolo = { path = "./piccolo" }
+piccolo-util = { path = "./piccolo/util" }
