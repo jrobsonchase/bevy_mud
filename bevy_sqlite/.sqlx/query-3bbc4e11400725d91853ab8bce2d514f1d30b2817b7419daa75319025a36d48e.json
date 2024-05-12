@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    INSERT INTO component (name)\n                    VALUES (?)\n                    ON CONFLICT DO UPDATE SET name = excluded.name\n                    RETURNING id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3bbc4e11400725d91853ab8bce2d514f1d30b2817b7419daa75319025a36d48e"
+}

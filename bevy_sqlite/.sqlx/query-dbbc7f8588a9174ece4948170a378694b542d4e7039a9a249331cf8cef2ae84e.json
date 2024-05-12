@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO entity_component (entity, component, data)\n            VALUES (?, ?, ?)\n            ON CONFLICT DO\n            UPDATE SET data = excluded.data\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "dbbc7f8588a9174ece4948170a378694b542d4e7039a9a249331cf8cef2ae84e"
+}
