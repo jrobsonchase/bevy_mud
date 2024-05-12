@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "util",
+]
+default-members = [
+    ".",
+    "util",
+]
+
+[workspace.package]
+version = "0.3.1"
+edition = "2021"
+authors = ["kyren <catherine@kyju.org>"]
+license = "MIT"
+repository = "https://github.com/kyren/piccolo"
+
+[workspace.dependencies]
+ahash = "0.8"
+allocator-api2 = "0.2"
+anyhow = "1.0"
+gc-arena = { version = "0.5.2", features = ["allocator-api2", "hashbrown"] }
+hashbrown = { version = "0.14", features = ["raw"] }
+rand = { version = "0.8", features = ["small_rng"] }
+serde = "1.0"
+thiserror = "1.0"
+
+piccolo = { path = "./", version = "0.3.1" }
+
+[package]
+name = "piccolo"
+description = "Stackless Lua VM implemented in pure Rust"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ahash.workspace = true
+allocator-api2.workspace = true
+anyhow.workspace = true
+gc-arena.workspace = true
+hashbrown.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+tracing = "0.1.40"
+
+[dev-dependencies]
+clap = { version = "4.4", features = ["cargo"] }
+rustyline = "13.0"
