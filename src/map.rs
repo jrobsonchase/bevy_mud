@@ -4,15 +4,11 @@
 //!
 //! Maps are hierarchical. Map -> Tile -> Errthang else.
 
-use std::{
-  collections::BTreeMap,
-  io::Write,
-};
+use std::io::Write;
 
 use base64::Engine as _;
 use bevy::{
   ecs::system::{
-    Command,
     CommandQueue,
     SystemParam,
   },
@@ -28,6 +24,7 @@ use bevy_sqlite::*;
 use futures::TryStreamExt;
 use hexx::{
   hex,
+  EdgeDirection,
   Hex,
   HexLayout,
 };
@@ -83,8 +80,8 @@ impl Plugin for MapPlugin {
       .register_type::<Option<Color>>()
       .register_type::<Modifier>()
       .register_type::<Hex>()
+      .register_type::<EdgeDirection>()
       .register_type::<Entities>()
-      .register_type::<Dig>()
       .register_type::<MapWidget>();
 
     app.insert_resource(Maps::default());
@@ -115,18 +112,18 @@ pub struct Maps {
 #[derive(Reflect, Component, Default, Eq, PartialEq)]
 pub struct Entities {
   #[reflect(ignore)]
-  pub by_coords: HashMap<Hex, BTreeMap<i8, Vec<Entity>>>,
+  pub by_coords: HashMap<Hex, Vec<Entity>>,
   #[reflect(ignore)]
   pub by_id: HashMap<Entity, Transform>,
 }
 
 impl Entities {
-  pub fn iter_at(&self, coord: &Hex) -> impl Iterator<Item = (i8, Entity)> + '_ {
-    self.by_coords.get(coord).into_iter().flat_map(|layers| {
-      layers
-        .iter()
-        .flat_map(|(l, entities)| entities.iter().map(|entity| (*l, *entity)))
-    })
+  pub fn iter_at(&self, coord: &Hex) -> impl Iterator<Item = Entity> + '_ {
+    self
+      .by_coords
+      .get(coord)
+      .into_iter()
+      .flat_map(|entities| entities.iter().copied())
   }
 }
 
@@ -181,7 +178,6 @@ pub struct Map(pub String);
 #[reflect(Component, Hash)]
 pub struct Transform {
   pub map: String,
-  pub layer: i8,
   pub coords: Hex,
   pub facing: i8,
 }
@@ -196,22 +192,18 @@ pub struct GlobalTransform(Transform);
 pub struct Tile;
 
 #[derive(Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
-#[reflect(Hash)]
+#[reflect(Hash, FromWorld)]
 pub struct Symbol {
   pub text: String,
   pub style: Style,
 }
 
 #[derive(Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
-#[reflect(Component, Hash)]
+#[reflect(Component, Hash, FromWorld)]
 pub struct Render {
   pub icon: Option<Symbol>,
   pub background: Option<Symbol>,
 }
-
-#[derive(Default, Copy, Clone, Debug, Reflect, Component)]
-#[reflect(Component)]
-pub struct Dig;
 
 #[derive(Component, Reflect, Default, Debug, Deref, DerefMut)]
 #[reflect(Component)]
@@ -343,15 +335,16 @@ fn add_global(
   mut cmd: Commands,
   query: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
 ) {
-  for ent in query.iter() {
-    cmd.entity(ent).insert(GlobalTransform::default());
+  for entity in query.iter() {
+    debug!(?entity, "adding global transform");
+    cmd.entity(entity).insert(GlobalTransform::default());
   }
 }
 
 fn propagate_transforms(
   mut writer: EventWriter<Moved>,
   mut map_ents: MapEntitiesMut,
-  changed: Query<(Entity, Option<&Parent>), Changed<Transform>>,
+  changed: Query<(Entity, Option<&Parent>), Or<(Added<Transform>, Changed<Transform>)>>,
   mut data_query: Query<(&Transform, &mut GlobalTransform)>,
   children: Query<&Children>,
 ) {
@@ -378,12 +371,12 @@ pub struct Moved {
 fn propagate_transform(
   writer: &mut EventWriter<Moved>,
   map_ents: &mut MapEntitiesMut,
-  ent: Entity,
+  entity: Entity,
   parent_xform: Option<&GlobalTransform>,
   data: &mut Query<(&Transform, &mut GlobalTransform)>,
   children: &Query<&Children>,
 ) {
-  let my_xform = if let Ok((xform, mut global)) = data.get_mut(ent) {
+  let my_xform = if let Ok((xform, mut global)) = data.get_mut(entity) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
       let mut coords = parent.coords + xform.coords;
       let mut d = parent.facing;
@@ -393,7 +386,6 @@ fn propagate_transform(
       coords = coords.rotate_cw(d as _);
       Transform {
         map: parent.map.clone(),
-        layer: parent.layer + xform.layer,
         coords,
         facing: (xform.facing + parent.facing) % 6,
       }
@@ -403,31 +395,48 @@ fn propagate_transform(
 
     let prev = std::mem::replace(&mut *global, GlobalTransform(xform));
 
-    if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
-      if let Some(ent_vec) = ents.by_id.remove(&ent).and_then(|prev| {
+    if prev.map != global.map {
+      if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
+        if let Some(ent_vec) = ents
+          .by_id
+          .remove(&entity)
+          .and_then(|prev| ents.by_coords.get_mut(&prev.coords))
+        {
+          ent_vec.retain(|e| *e != entity);
+        }
+      }
+      if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
+        ents.by_id.insert(entity, (**global).clone());
         ents
           .by_coords
-          .get_mut(&prev.coords)
-          .and_then(|ls| ls.get_mut(&prev.layer))
-      }) {
-        ent_vec.retain(|e| *e != ent);
+          .entry(global.coords)
+          .or_default()
+          .push(entity);
+      };
+    } else if prev.coords != global.coords {
+      if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
+        if let Some(ent_vec) = ents
+          .by_id
+          .get(&entity)
+          .map(|t| t.coords)
+          .and_then(|prev| ents.by_coords.get_mut(&prev))
+        {
+          ent_vec.retain(|e| *e != entity);
+        }
       }
+      if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
+        ents.by_id.insert(entity, (**global).clone());
+        ents
+          .by_coords
+          .entry(global.coords)
+          .or_default()
+          .push(entity);
+      };
     }
-
-    if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
-      ents.by_id.insert(ent, (**global).clone());
-      ents
-        .by_coords
-        .entry(global.coords)
-        .or_default()
-        .entry(global.layer)
-        .or_default()
-        .push(ent);
-    };
 
     if prev != *global {
       writer.send(Moved {
-        entity: ent,
+        entity,
         prev,
         new: global.clone(),
       });
@@ -438,7 +447,7 @@ fn propagate_transform(
     None
   };
 
-  for child in children.get(ent).iter().flat_map(|c| c.iter()) {
+  for child in children.get(entity).iter().flat_map(|c| c.iter()) {
     propagate_transform(writer, map_ents, *child, my_xform.as_ref(), data, children);
   }
 }
@@ -462,7 +471,6 @@ fn emit_change_events(
             .by_coords
             .get(&coords)
             .into_iter()
-            .flat_map(|ls| ls.values())
             .flat_map(|ents| ents.iter())
           {
             if widgets.contains(*other) {
@@ -516,10 +524,7 @@ fn render_map_system(
           continue;
         }
         let mut tile = TuiTile::default();
-        for render in map
-          .iter_at(&coord)
-          .filter_map(|(_, e)| render_query.get(e).ok())
-        {
+        for render in map.iter_at(&coord).filter_map(|e| render_query.get(e).ok()) {
           if let Some(bg) = render.background.as_ref() {
             tile.background().symbol(&bg.text).style(bg.style.into());
           }
