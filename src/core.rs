@@ -84,6 +84,9 @@ impl Plugin for CorePlugin {
     app.add_plugins(AccountPlugin);
     app.add_plugins(GameCommandsPlugin);
     app.add_plugins(MovementPlugin);
+
+    app.persist_component::<Parent>();
+    app.persist_component::<Children>();
   }
 }
 

@@ -114,14 +114,21 @@ const S: EdgeDirection = EdgeDirection::FLAT_SOUTH;
 const SW: EdgeDirection = EdgeDirection::FLAT_SOUTH_WEST;
 const NW: EdgeDirection = EdgeDirection::FLAT_NORTH_WEST;
 
+const FWD: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[0];
+const FWD_RIGHT: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[1];
+const BACK_RIGHT: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[2];
+const BACK: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[3];
+const BACK_LEFT: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[4];
+const FWD_LEFT: EdgeDirection = EdgeDirection::ALL_DIRECTIONS[5];
+
 command_set! { PlayerCommands =>
   ("who", who),
-  ("forward", move_relative(EdgeDirection::FLAT_NORTH)),
-  ("forwardright", move_relative(EdgeDirection::FLAT_NORTH_EAST)),
-  ("forwardleft", move_relative(EdgeDirection::FLAT_NORTH_WEST)),
-  ("backward", move_relative(EdgeDirection::FLAT_SOUTH)),
-  ("backwardright", move_relative(EdgeDirection::FLAT_SOUTH_EAST)),
-  ("backwardleft", move_relative(EdgeDirection::FLAT_SOUTH_WEST)),
+  ("forward", move_relative(FWD)),
+  ("forwardright", move_relative(FWD_RIGHT)),
+  ("forwardleft", move_relative(FWD_LEFT)),
+  ("backward", move_relative(BACK)),
+  ("backwardright", move_relative(BACK_RIGHT)),
+  ("backwardleft", move_relative(BACK_LEFT)),
   ("right", turn_direction(1)),
   ("left", turn_direction(-1)),
   ("north", move_absolute(N)),

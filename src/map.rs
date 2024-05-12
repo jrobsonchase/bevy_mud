@@ -179,7 +179,7 @@ pub struct Map(pub String);
 pub struct Transform {
   pub map: String,
   pub coords: Hex,
-  pub facing: i8,
+  pub facing: EdgeDirection,
 }
 
 #[derive(Component, Reflect, Clone, Deref, Default, Eq, PartialEq, Hash, Debug)]
@@ -378,16 +378,10 @@ fn propagate_transform(
 ) {
   let my_xform = if let Ok((xform, mut global)) = data.get_mut(entity) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
-      let mut coords = parent.coords + xform.coords;
-      let mut d = parent.facing;
-      while d < 0 {
-        d += 6;
-      }
-      coords = coords.rotate_cw(d as _);
       Transform {
         map: parent.map.clone(),
-        coords,
-        facing: (xform.facing + parent.facing) % 6,
+        coords: xform.coords.rotate_cw(parent.facing.index() as _),
+        facing: xform.facing.rotate_cw(parent.facing.index() as _),
       }
     } else {
       xform.clone()
@@ -512,15 +506,13 @@ fn render_map_system(
       let out = try_opt!(player_query.get(player.0).ok(), return);
       let (_, map) = try_opt!(map_entities.by_name(&xform.map), return);
 
+      let center = xform.coords + xform.facing.into_hex() * 3;
+
       widget.clear();
-      let mut r = xform.facing;
-      while r < 0 {
-        r += 6;
-      }
-      widget.center(xform.coords + hex(0, -1).rotate_cw(r as _) * 3);
-      widget.rotation(-(xform.facing));
+      widget.center(center);
+      widget.up_direction(xform.facing);
       for coord in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
-        if !is_visible(xform, coord) {
+        if !is_visible(xform, coord) && coord != center {
           continue;
         }
         let mut tile = TuiTile::default();
@@ -532,6 +524,14 @@ fn render_map_system(
             tile.center().symbol(&fg.text).style(fg.style.into());
           }
         }
+
+        if coord == center {
+          tile.background().style(ratatui::style::Style {
+            bg: Some(ratatui::style::Color::Cyan),
+            ..Default::default()
+          });
+        }
+
         widget.insert(coord, tile);
       }
       let mut renderer = Ansi::default();
@@ -565,11 +565,10 @@ fn render_map_system(
 fn is_visible(xform: &GlobalTransform, coord: Hex) -> bool {
   let layout = HexLayout::default();
   let diff = coord - xform.coords;
-  let mut facing = -xform.facing;
-  if facing < 0 {
-    facing += 6;
-  }
-  let rotated = diff.rotate_cw(facing as _);
+  let facing = xform.facing;
+
+  // orient to flat north
+  let rotated = diff.rotate_ccw(2 + facing.index() as u32);
 
   let Vec2 { x, y } = layout.hex_to_world_pos(rotated);
 
@@ -577,9 +576,9 @@ fn is_visible(xform: &GlobalTransform, coord: Hex) -> bool {
 
   let dist = xform.coords.distance_to(coord);
 
-  if angle.abs() <= std::f32::consts::FRAC_PI_2 {
-    dist <= MAP_RADIUS as _
-  } else {
+  if angle.abs() > std::f32::consts::FRAC_PI_2 {
     dist <= (MAP_RADIUS / 4) as _
+  } else {
+    dist <= MAP_RADIUS as _
   }
 }

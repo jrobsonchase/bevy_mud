@@ -144,28 +144,11 @@ pub enum MoveAction {
 }
 
 impl MoveAction {
-  #[allow(dead_code)]
-  fn to_absolute(self, facing: i8) -> Self {
+  fn to_relative(self, facing: EdgeDirection) -> Self {
     match self {
-      Self::MoveRelative(coords) => Self::MoveAbsolute(coords.rotate_cw({
-        let mut facing = facing;
-        while facing < 0 {
-          facing += 6;
-        }
-        facing as _
-      })),
-      other => other,
-    }
-  }
-  fn to_relative(self, facing: i8) -> Self {
-    match self {
-      Self::MoveAbsolute(coords) => Self::MoveRelative(coords.rotate_cw({
-        let mut facing = -(facing);
-        while facing < 0 {
-          facing += 6;
-        }
-        facing as _
-      })),
+      Self::MoveAbsolute(coords) => {
+        Self::MoveRelative(coords.rotate_cw(facing.const_neg().index() as _))
+      }
       other => other,
     }
   }
@@ -268,16 +251,15 @@ fn movement_system(
           true
         }
         MoveAction::MoveRelative(off) if debt.movement == 0f32 => {
-          let mut facing = xform.facing;
-          while facing < 0 {
-            facing += 6;
-          }
-          xform.coords += off.rotate_cw(facing as _);
+          let rotation = xform.facing.index();
+          xform.coords += off.rotate_cw(rotation as _);
           true
         }
-        MoveAction::Turn(dir) if debt.rotation <= 0f32 => {
-          xform.facing += dir;
-          xform.facing %= 6;
+        MoveAction::Turn(mut dir) if debt.rotation <= 0f32 => {
+          while dir < 0 {
+            dir += 6
+          }
+          xform.facing = xform.facing.rotate_cw(dir as _);
           true
         }
         _ => false,
@@ -314,12 +296,12 @@ fn movement_system(
 }
 
 const HUMAN_DIRECTIONS: [&str; 6] = [
+  "forward",
+  "forward and to your right",
   "backward and to your right",
   "backward",
   "backward and to your left",
   "forward and to your left",
-  "forward",
-  "forward and to your right",
 ];
 
 fn moving_output(

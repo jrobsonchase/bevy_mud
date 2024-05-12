@@ -4,6 +4,7 @@ use std::{
     HashMap,
     HashSet,
   },
+  f32::consts::SQRT_2,
 };
 
 use bevy::prelude::*;
@@ -12,6 +13,7 @@ use hexx::{
   hex,
   EdgeDirection,
   Hex,
+  HexLayout,
 };
 use ratatui::{
   buffer::Cell,
@@ -285,19 +287,30 @@ pub struct HexMap {
   #[reflect(ignore)]
   tiles: HashMap<Hex, Tile>,
   center: Hex,
-  rotation: EdgeDirection,
+  up_direction: EdgeDirection,
   radius: u8,
   render_edges: bool,
+  base_layout: HexLayout,
 }
 
 impl Default for HexMap {
   fn default() -> Self {
+    const SQRT_3: f32 = 1.732_050_8;
     HexMap {
       tiles: HashMap::default(),
       center: hex(0, 0),
-      rotation: EdgeDirection::ALL_DIRECTIONS[0],
+      up_direction: EdgeDirection::FLAT_NORTH,
       radius: 20,
       render_edges: true,
+      base_layout: HexLayout {
+        orientation: hexx::HexOrientation::Flat,
+        hex_size: Vec2 {
+          y: 2. / SQRT_3,
+          x: 2.,
+        },
+        invert_y: true,
+        ..Default::default()
+      },
     }
   }
 }
@@ -339,12 +352,8 @@ impl HexMap {
     self.tiles.insert(coords, tile);
   }
 
-  pub fn rotation(&mut self, rotation: i8) -> &mut Self {
-    if rotation < 0 {
-      self.rotation = EdgeDirection::ALL_DIRECTIONS[0].rotate_ccw(rotation.abs() as u8);
-    } else {
-      self.rotation = EdgeDirection::ALL_DIRECTIONS[0].rotate_cw(rotation as u8);
-    }
+  pub fn up_direction(&mut self, up_direction: EdgeDirection) -> &mut Self {
+    self.up_direction = up_direction;
     self
   }
 
@@ -365,16 +374,22 @@ impl HexMap {
   }
 
   fn rect_coords(&self, rect: Rect, coords: Hex) -> Option<(u16, u16)> {
-    if self.center.distance_to(coords) >= self.radius as _ {
+    if self.center.unsigned_distance_to(coords) >= self.radius as _ {
       return None;
     }
-    let coords = (coords - self.center).rotate_cw(self.rotation.index() as _);
     let (x, y) = self.center_coords(rect);
-    let mut x = x as i32;
-    let mut y = y as i32;
-    x += 3 * coords.x as i32;
-    y += 2 * coords.y as i32 + coords.x as i32;
-    visible(rect, x, y)
+
+    let layout = HexLayout {
+      origin: Vec2 {
+        x: x as _,
+        y: y as _,
+      },
+      ..self.base_layout
+    };
+    let coords = (coords - self.center).rotate_ccw(2 + self.up_direction.index() as u32);
+    let pos = layout.hex_to_world_pos(coords);
+
+    visible(rect, pos.x.round() as _, pos.y.round() as _)
   }
 }
 
@@ -433,7 +448,7 @@ impl<'a> Widget for &'a HexMap {
             if self.render_edges {
               let has_neighbor = EDGE_NEIGHBORS[i]
                 .iter()
-                .map(|n| hex + n.rotate_ccw(self.rotation.index() as u32))
+                .map(|n| hex + n.rotate_cw(2 + self.up_direction.index() as u32))
                 .any(|h| self.rect_coords(area, h).is_some() && self.tiles.contains_key(&h));
               let c = if has_neighbor {
                 EDGES[i].1.unwrap_or(EDGES[i].0)

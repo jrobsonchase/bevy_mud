@@ -1,6 +1,9 @@
 use anyhow::anyhow;
 use bevy::ecs::entity::Entity;
-use hexx::hex;
+use hexx::{
+  hex,
+  EdgeDirection,
+};
 
 use super::{
   debug::DebugCommands,
@@ -47,10 +50,11 @@ fn rotate_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     });
     out.line(format!("Rotating {:?} by {}", entity_id, rotation));
     if let Some(mut xform) = entity.get_mut::<Transform>() {
-      xform.facing = (xform.facing + rotation) % 6;
+      xform.facing =
+        EdgeDirection::ALL_DIRECTIONS[((xform.facing.index() as i8 + rotation) % 6) as usize];
     } else {
       entity.insert(Transform {
-        facing: rotation,
+        // facing: rotation,
         ..Default::default()
       });
     }
