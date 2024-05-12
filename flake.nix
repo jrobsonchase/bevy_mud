@@ -49,7 +49,6 @@
         bevy_sqlite = cargoWorkspace.workspaceMembers.bevy_sqlite.build;
         bevy_async_util = cargoWorkspace.workspaceMembers.bevy_async_util.build;
         bevy_piccolo = cargoWorkspace.workspaceMembers.bevy_piccolo.build;
-        piccolo = cargoWorkspace.workspaceMembers.piccolo.build;
       };
       devShells.default = pkgs.mkShell {
         inputsFrom = [
