@@ -1,0 +1,14 @@
+[package]
+name = "bevy_piccolo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.82"
+bevy = { version = "0.13.2", features = [ "bevy_asset", "multi-threaded", "file_watcher" ], default-features = false }
+gc-arena = "0.5.1"
+parking_lot = "0.12.1"
+piccolo = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
+piccolo-util = { git = "https://github.com/jrobsonchase/piccolo", branch = "develop" }
+serde = "1.0.198"
+thiserror = "1.0.58"
