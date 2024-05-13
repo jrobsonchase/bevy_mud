@@ -4,7 +4,6 @@ use std::{
     HashMap,
     HashSet,
   },
-  f32::consts::SQRT_2,
 };
 
 use bevy::prelude::*;

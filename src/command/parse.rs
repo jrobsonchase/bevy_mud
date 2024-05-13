@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-enum Node {
+pub enum Node {
   Word(String),
   Quoted(String),
   Space,

@@ -23,7 +23,6 @@ use bevy_async_util::CommandsExt;
 use bevy_sqlite::*;
 use futures::TryStreamExt;
 use hexx::{
-  hex,
   EdgeDirection,
   Hex,
   HexLayout,

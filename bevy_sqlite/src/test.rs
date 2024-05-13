@@ -8,7 +8,6 @@ use std::{
 };
 
 use bevy::{
-    app::MainScheduleOrder,
     tasks::{
         IoTaskPool,
         TaskPool,
