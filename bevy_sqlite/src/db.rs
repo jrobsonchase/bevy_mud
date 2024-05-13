@@ -10,7 +10,6 @@ use bevy::{
         entity::EntityHashMap,
         reflect::ReflectMapEntities,
         system::{
-            Command,
             SystemParam,
         },
     },
@@ -258,7 +257,7 @@ impl<'w> SaveDb<'w> {
         reflect_component.apply_or_insert(
             &mut db_world.get_or_spawn(db_entity.0).unwrap(),
             value,
-            &registry,
+            registry,
         );
         if let Some(map_entities) = registration.data::<ReflectMapEntities>() {
             map_entities.map_entities(db_world, &mut self.map.write().world_to_db, &[db_entity.0]);
@@ -436,8 +435,8 @@ impl<'w> SaveDb<'w> {
         let world_entity = entity_ref.id();
         let db_entity = self.map.read().db_entity(world_entity);
         let db_entity = if db_entity.map(|e| e.to_index()).is_some() {
-            let db_entity = db_entity.unwrap();
-            db_entity
+            
+            db_entity.unwrap()
         } else {
             let mut db_world = self.db_world.write();
             let db_entity = DbEntity(db_world.spawn_empty().id());

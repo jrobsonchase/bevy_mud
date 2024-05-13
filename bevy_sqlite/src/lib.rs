@@ -140,7 +140,7 @@ impl Future for Creating {
     ) -> std::task::Poll<Self::Output> {
         Pin::new(&mut self.as_mut().task)
             .poll(cx)
-            .map(|res| apply_created_output(res))
+            .map(apply_created_output)
     }
 }
 
@@ -171,7 +171,7 @@ impl Future for Loading {
     ) -> std::task::Poll<Self::Output> {
         Pin::new(&mut self.as_mut().task)
             .poll(cx)
-            .map(|result| apply_loaded(result))
+            .map(apply_loaded)
     }
 }
 
