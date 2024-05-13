@@ -2,21 +2,26 @@ use bevy::{
   prelude::*,
   utils::HashSet,
 };
-use bevy_sqlite::*;
+use bevy_replicon::core::replication_rules::AppRuleExt;
+use serde::{
+  Deserialize,
+  Serialize,
+};
 
 use crate::{
   action::Queue,
+  core::Live,
   movement::Speed,
 };
 
 /// Pointer from a character to the player who controls it.
-#[derive(Component, Debug, Eq, PartialEq, Reflect, Deref)]
+#[derive(Component, Debug, Eq, PartialEq, Reflect, Deref, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct Player(pub Entity);
 
 /// Marker for a Non-Player character.
 /// Should eventually be a pointer to an AI controller of some sort.
-#[derive(Component, Debug, Eq, PartialEq, Reflect, Default)]
+#[derive(Component, Debug, Eq, PartialEq, Reflect, Default, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct NonPlayer;
 
@@ -41,7 +46,7 @@ impl Default for Puppet {
 /// This can be Player or Non-Player, as determined by the presence
 /// of the [Player] or [NonPlayer] component. [Player] will always take
 /// precendence, and a character with neither should be despawned.
-#[derive(Component, Debug, Reflect, Default)]
+#[derive(Component, Debug, Reflect, Default, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct Character;
 
@@ -50,8 +55,12 @@ pub struct CharacterPlugin;
 impl Plugin for CharacterPlugin {
   fn build(&self, app: &mut App) {
     app.register_type::<Puppet>().register_type::<Player>();
-    app.persist_component::<Character>();
-    app.persist_component::<NonPlayer>();
+
+    app.replicate::<Character>();
+    app.replicate::<NonPlayer>();
+
+    app.register_type::<Character>();
+    app.register_type::<NonPlayer>();
     app.add_systems(
       Update,
       unpuppet_system
@@ -76,11 +85,15 @@ pub struct CharacterBundle {
 
 fn despawn_system(
   mut cmd: Commands,
-  query: Query<(Entity, &Character), (Without<Player>, Without<NonPlayer>, Without<Despawn>)>,
+  query: Query<(Entity, &Character), (Without<Player>, Without<NonPlayer>, With<Live>)>,
+  children: Query<&Children>,
 ) {
   for (ent, _) in query.iter() {
     debug!(?ent, "unloading controllerless character");
-    cmd.entity(ent).insert(Despawn);
+    for child in children.iter_descendants(ent) {
+      cmd.entity(child).remove::<Live>();
+    }
+    cmd.entity(ent).remove::<Live>();
   }
 }
 

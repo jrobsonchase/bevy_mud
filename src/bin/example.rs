@@ -7,7 +7,6 @@ use bevy_mud::{
   negotiate,
   net::*,
 };
-use bevy_sqlite::Db;
 use clap::Parser;
 #[cfg(feature = "otel")]
 use opentelemetry_api::KeyValue;
@@ -46,8 +45,6 @@ fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
   let mut app = App::new();
-
-  app.insert_resource(Db::connect_lazy("sqlite://db.sqlite").expect("failed to open database"));
 
   app.add_plugins(CorePlugin);
 

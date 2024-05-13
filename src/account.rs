@@ -5,15 +5,17 @@ use bcrypt::{
   verify,
 };
 use bevy::{
-  ecs::system::Command,
+  ecs::{
+    entity::MapEntities,
+    system::Command,
+  },
   prelude::*,
+  utils::HashMap,
 };
-use bevy_async_util::EntityCommandsExt;
-use bevy_sqlite::{
-  Db,
-  DbEntity,
-  SaveDb,
-  WorldExt,
+use bevy_replicon::core::Replicated;
+use serde::{
+  Deserialize,
+  Serialize,
 };
 
 use crate::{
@@ -23,14 +25,42 @@ use crate::{
     Player,
     Puppet,
   },
+  core::Live,
   net::*,
 };
+
+#[derive(Debug, Reflect, Serialize, Deserialize)]
+#[reflect(Serialize, Deserialize)]
+pub struct UserEntry {
+  pub hashed_password: String,
+  pub character: Entity,
+}
+
+impl MapEntities for UserEntry {
+  fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    self.character = entity_mapper.map_entity(self.character);
+  }
+}
+
+#[derive(Debug, Resource, Reflect, Serialize, Deserialize, Default)]
+#[reflect(Resource, FromWorld, Serialize, Deserialize)]
+pub struct UserDb {
+  pub users: HashMap<String, UserEntry>,
+}
+
+impl MapEntities for UserDb {
+  fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    self
+      .users
+      .values_mut()
+      .for_each(|v| v.map_entities(entity_mapper));
+  }
+}
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct Session {
   pub username: String,
-  pub id: i64,
   pub admin: bool,
 }
 
@@ -39,7 +69,7 @@ pub struct Session {
 enum LoginState {
   Start,
   Username,
-  Password { name: String, user_id: i64 },
+  Password { name: String },
   NewUserPassword { name: String },
   NewUserConfirm { name: String, password: String },
 }
@@ -62,17 +92,21 @@ pub struct AccountPlugin;
 
 impl Plugin for AccountPlugin {
   fn build(&self, app: &mut App) {
-    app.register_type::<Session>();
-    app.add_systems(
-      Update,
-      login_system.run_if(any_with_component::<LoginState>),
-    );
+    app
+      .register_type::<Session>()
+      .register_type::<UserDb>()
+      .register_type::<UserEntry>()
+      .insert_resource(UserDb::default())
+      .add_systems(
+        Update,
+        login_system.run_if(any_with_component::<LoginState>),
+      );
   }
 }
 
 fn login_system(
   mut cmd: Commands,
-  db: SaveDb,
+  mut users: ResMut<UserDb>,
   mut query: Query<(Entity, &mut LoginState, &mut TelnetIn, &TelnetOut)>,
 ) {
   for (entity, mut state, mut input, output) in query.iter_mut() {
@@ -90,120 +124,54 @@ fn login_system(
           *state = LoginState::Start;
           continue;
         }
+        if users.users.contains_key(&name) {
+          cmd.entity(entity).insert(LoginState::Password { name });
+          output.line("Password: ");
+        } else {
+          output.line("Creating new account.");
+          cmd
+            .entity(entity)
+            .insert(LoginState::NewUserPassword { name });
 
-        let db = db.db.clone();
-
-        cmd.entity(entity).remove::<LoginState>().attach_callback(
-          async move {
-            let results = sqlx::query!("SELECT id from user where name = ?", name)
-              .fetch_optional(&*db)
-              .await?
-              .map(|row| row.id);
-            Ok((name, results))
-          },
-          move |result: sqlx::Result<_>, entity, world| match result {
-            Ok((name, id)) => {
-              let output = world.entity(entity).get::<TelnetOut>().unwrap().clone();
-              match id {
-                None => {
-                  output.line("Creating new account.");
-                  world
-                    .entity_mut(entity)
-                    .insert(LoginState::NewUserPassword { name });
-                }
-                Some(user_id) => {
-                  world
-                    .entity_mut(entity)
-                    .insert(LoginState::Password { name, user_id });
-                }
-              };
-              output.string("Password: ");
-              command!(output, GA);
-              negotiate!(output, WILL, ECHO);
-            }
-            Err(err) => {
-              world
-                .entity(entity)
-                .get::<TelnetOut>()
-                .unwrap()
-                .line(format!("error checking username: {}", err));
-              world.entity_mut(entity).insert(LoginState::Start);
-            }
-          },
-        );
+          output.string("Password: ");
+          command!(output, GA);
+          negotiate!(output, WILL, ECHO);
+        }
       }
-      LoginState::Password { name, user_id } => {
+      LoginState::Password { name } => {
         let password = try_opt!(input.next_line(), continue);
         negotiate!(output, WONT, ECHO);
-        let db = db.db.clone();
-        let id = *user_id;
         let username = mem::take(name);
 
-        cmd.entity(entity).remove::<LoginState>().attach_callback(
-          async move {
-            let row = sqlx::query!("SELECT password FROM user WHERE id = ?", id)
-              .fetch_one(&*db)
-              .await?;
-            let hashed = row.password;
-            Ok(verify(password, &hashed)?)
-          },
-          move |res: anyhow::Result<_>, entity, world| {
-            let output = world.entity(entity).get::<TelnetOut>().unwrap().clone();
-            match res {
-              Ok(success) => {
-                if success {
-                  output.line("\nSuccess!").string("> ");
-                  command!(output, GA);
-                  let db = world.resource::<Db>().clone();
-                  world
-                    .entity_mut(entity)
-                    .insert(Session {
-                      username,
-                      id,
-                      admin: true,
-                    })
-                    .attach_callback(
-                      async move {
-                        let mut conn = db.acquire().await?;
-                        let row =
-                          sqlx::query!("select entity from character where user_id = ?", id)
-                            .fetch_one(&mut *conn)
-                            .await?;
-                        Ok(DbEntity::from_index(row.entity as _))
-                      },
-                      move |res: sqlx::Result<_>, entity, world| match res {
-                        Ok(db_entity) => {
-                          let character = world
-                            .db_entity(db_entity)
-                            .insert((CharacterBundle::default(), Player(entity)))
-                            .id();
-                          world.entity_mut(entity).insert(Puppet(character));
-                        }
-                        Err(error) => {
-                          warn!(?entity, %error, "failed to find character, creating a blank one");
-                          let character = world
-                            .spawn((NewCharacterBundle::default(), Player(entity)))
-                            .id();
-                          world.entity_mut(entity).insert(Puppet(character));
-                        }
-                      },
-                    );
-                } else {
-                  output.line("\nInvalid password.");
-                  world.entity_mut(entity).insert(LoginState::Start);
-                }
-              }
-              Err(err) => {
-                world
-                  .entity(entity)
-                  .get::<TelnetOut>()
-                  .unwrap()
-                  .line(format!("\nerror checking password:\n{}", err));
-                world.entity_mut(entity).insert(LoginState::Start);
-              }
-            }
-          },
-        );
+        let Some(entry) = users.users.get(&username) else {
+          warn!(username, "user not found");
+          cmd.entity(entity).insert(LoginState::Start);
+          continue;
+        };
+
+        debug!(?password, hash = ?entry.hashed_password, "verifying password");
+        if !verify(password, &entry.hashed_password).unwrap() {
+          output.line("Invalid password.");
+          cmd.entity(entity).insert(LoginState::Start);
+          continue;
+        }
+
+        output.line("Welcome back!");
+        command!(output, GA);
+
+        cmd
+          .entity(entry.character)
+          .insert((Live, CharacterBundle::default(), Player(entity)));
+        cmd
+          .entity(entity)
+          .insert((
+            Session {
+              username,
+              admin: true,
+            },
+            Puppet(entry.character),
+          ))
+          .remove::<LoginState>();
       }
 
       LoginState::NewUserPassword { name } => {
@@ -229,67 +197,25 @@ fn login_system(
         command!(output, GA);
         negotiate!(output, WONT, ECHO);
 
-        let db_world = db.db_world.clone();
-        let db = db.db.clone();
-        let name = mem::take(name);
-        cmd.entity(entity).remove::<LoginState>().attach_callback(
-          async move {
-            let hashed = hash(confirm, 4)?;
-
-            let mut tx = db.begin().await?;
-
-            debug!("inserting name and password hash");
-            let user_res = sqlx::query!(
-              "INSERT INTO user (name, password) VALUES (?, ?)",
-              name,
-              hashed
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            let db_entity = DbEntity(db_world.write().spawn_empty().id());
-            let db_idx = db_entity.to_index();
-            sqlx::query!("INSERT INTO entity (id) VALUES (?)", db_idx,)
-              .execute(&mut *tx)
-              .await?;
-
-            let user_id = user_res.last_insert_rowid();
-            let character_id = db_entity.to_index();
-
-            debug!("inserting user/character mapping");
-            sqlx::query!(
-              "INSERT INTO character (user_id, entity) VALUES (?, ?)",
-              user_id,
-              character_id,
-            )
-            .execute(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            Ok((name, user_id, db_entity))
+        debug!(password = ?confirm, "hashing password");
+        let hashed_password = hash(confirm, 4).unwrap();
+        output.line(" done!");
+        let character = cmd
+          .spawn((NewCharacterBundle::default(), Replicated, Player(entity)))
+          .id();
+        cmd.entity(entity).remove::<LoginState>().insert((
+          Session {
+            username: name.clone(),
+            admin: true,
           },
-          move |res: anyhow::Result<_>, entity, world| match res {
-            Ok((name, user_id, character_id)) => {
-              if let Some(out) = world.entity(entity).get::<TelnetOut>() {
-                out.line(" done!");
-              }
-              let character = world
-                .spawn((NewCharacterBundle::default(), character_id, Player(entity)))
-                .id();
-              world.entity_mut(entity).remove::<LoginState>().insert((
-                Session {
-                  username: name,
-                  id: user_id,
-                  admin: true,
-                },
-                Puppet(character),
-              ));
-            }
-            Err(err) => {
-              if let Some(out) = world.entity(entity).get::<TelnetOut>() {
-                out.line(format!("\nerror creating user:\n{}", err));
-              }
-              world.entity_mut(entity).insert(LoginState::Start);
-            }
+          Puppet(character),
+        ));
+
+        users.users.insert(
+          name.clone(),
+          UserEntry {
+            hashed_password,
+            character,
           },
         );
       }

@@ -100,7 +100,7 @@ bitflags! {
   }
 }
 
-#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[reflect(Debug, Hash)]
 pub enum Color {
   #[default]
@@ -151,12 +151,16 @@ impl From<Color> for TuiColor {
   }
 }
 
-#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug)]
-#[reflect(Debug, Hash)]
+#[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[reflect(Debug, Hash, FromWorld)]
 pub struct Style {
+  #[serde(default)]
   pub fg: Option<Color>,
+  #[serde(default)]
   pub bg: Option<Color>,
+  #[serde(default)]
   pub add_modifier: Modifier,
+  #[serde(default)]
   pub sub_modifier: Modifier,
 }
 

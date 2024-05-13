@@ -8,20 +8,17 @@ use std::io::Write;
 
 use base64::Engine as _;
 use bevy::{
-  ecs::system::{
-    CommandQueue,
-    SystemParam,
+  ecs::{
+    entity::EntityHashSet,
+    system::SystemParam,
   },
   prelude::*,
-  reflect::GetTypeRegistration,
   utils::{
     hashbrown::HashSet,
     HashMap,
   },
 };
-use bevy_async_util::CommandsExt;
-use bevy_sqlite::*;
-use futures::TryStreamExt;
+use bevy_replicon::core::replication_rules::AppRuleExt;
 use hexx::{
   EdgeDirection,
   Hex,
@@ -29,7 +26,15 @@ use hexx::{
 };
 use ratatui::{
   prelude::Rect,
+  style::{
+    Color as TuiColor,
+    Style as TuiStyle,
+  },
   widgets::Widget,
+};
+use serde::{
+  Deserialize,
+  Serialize,
 };
 
 use crate::{
@@ -43,33 +48,72 @@ use crate::{
       Tile as TuiTile,
     },
   },
-  character::{
-    Character,
-    NonPlayer,
-    Player,
+  character::Player,
+  core::{
+    Live,
+    LiveQuery,
   },
   net::{
     TelnetOut,
     GMCP,
   },
+  util::debug_event,
 };
 
-const MAP_RADIUS: u64 = 8;
+const MAP_RADIUS: u32 = 9;
 
 pub struct MapPlugin;
+
+#[derive(Resource, Debug, Reflect, Clone, Copy, Eq, PartialEq)]
+#[reflect(Resource)]
+pub struct MapConfig {
+  pub init_res_power: u32,
+  pub extra_resolutions: usize,
+}
+
+impl Default for MapConfig {
+  fn default() -> Self {
+    Self {
+      init_res_power: 4,
+      extra_resolutions: 4,
+    }
+  }
+}
+
+impl MapConfig {
+  pub fn radii(&self) -> impl Iterator<Item = (usize, u32)> {
+    let base = self.init_res_power;
+    (0..self.extra_resolutions + 1).map(move |i| {
+      if i == 0 {
+        (i, 0)
+      } else {
+        (i, base * 2u32.pow(i as u32 - 1))
+      }
+    })
+  }
+  pub fn hex_resolutions(&self, hex: Hex) -> impl Iterator<Item = (usize, Hex)> {
+    self.radii().map(move |(i, r)| (i, hex.to_lower_res(r)))
+  }
+}
 
 impl Plugin for MapPlugin {
   fn build(&self, app: &mut App) {
     app.add_event::<RenderRequest>().add_event::<Moved>();
     app
-      .persist_component::<Name>()
-      .persist_component::<Map>()
-      .persist_component::<MapWidget>()
-      .persist_component::<Transform>()
-      .persist_component::<Render>()
-      .persist_component::<Tile>();
+      .replicate::<Name>()
+      .replicate::<Map>()
+      .replicate::<MapWidget>()
+      .replicate::<Transform>()
+      .replicate::<Render>()
+      .replicate::<Tile>();
 
     app
+      .register_type::<Name>()
+      .register_type::<Map>()
+      .register_type::<MapWidget>()
+      .register_type::<Transform>()
+      .register_type::<Render>()
+      .register_type::<Tile>()
       .register_type::<GlobalTransform>()
       .register_type::<Symbol>()
       .register_type::<Option<Symbol>>()
@@ -86,18 +130,24 @@ impl Plugin for MapPlugin {
     app.insert_resource(Maps::default());
 
     app
+      .add_systems(Startup, |world: &mut World| {
+        if !world.contains_resource::<MapConfig>() {
+          world.insert_resource(MapConfig::default());
+        }
+      })
       .add_systems(
-        PreUpdate,
+        PostUpdate,
         (
           (track_maps_system, add_global),
+          unlive,
           propagate_transforms,
-          emit_change_events,
+          debug_event::<Moved>,
+          moved_to_render_events,
+          debug_event::<RenderRequest>,
           render_map_system,
         )
-          .chain()
-          .after(DbSystem),
-      )
-      .add_systems(Startup, spawn_maps.after(DbSystem));
+          .chain(),
+      );
   }
 }
 
@@ -109,71 +159,170 @@ pub struct Maps {
 
 /// Quick reference for all of the entities that are on a particular map.
 #[derive(Reflect, Component, Default, Eq, PartialEq)]
+#[reflect(Component)]
 pub struct Entities {
+  pub config: MapConfig,
   #[reflect(ignore)]
-  pub by_coords: HashMap<Hex, Vec<Entity>>,
+  pub by_coords: Vec<HashMap<Hex, Vec<Entity>>>,
   #[reflect(ignore)]
-  pub by_id: HashMap<Entity, Transform>,
+  pub by_id: HashMap<Entity, GlobalTransform>,
 }
 
 impl Entities {
-  pub fn iter_at(&self, coord: &Hex) -> impl Iterator<Item = Entity> + '_ {
-    self
-      .by_coords
-      .get(coord)
+  fn new(config: MapConfig) -> Self {
+    Self {
+      config,
+      by_coords: vec![Default::default(); config.extra_resolutions + 1],
+      ..Default::default()
+    }
+  }
+  fn iter_at(&self, coord: Hex, resolution: usize) -> impl Iterator<Item = Entity> + '_ {
+    self.by_coords[resolution]
+      .get(&coord)
       .into_iter()
       .flat_map(|entities| entities.iter().copied())
+  }
+
+  fn find_within(
+    &self,
+    coord: Hex,
+    radius: u32,
+  ) -> impl Iterator<Item = (Entity, &GlobalTransform)> + '_ {
+    self
+      .config
+      .radii()
+      .find(|(_, r)| *r >= radius/2)
+      .into_iter()
+      .flat_map(move |(i, r)| {
+        let downscaled = coord.to_lower_res(r);
+        debug!(resolution = i, coord = ?downscaled, resolution_radius = r, radius, "returning entities");
+        self.iter_at(downscaled, i).chain(
+          downscaled
+            .all_neighbors()
+            .into_iter()
+            .flat_map(move |coord| self.iter_at(coord, i)),
+        )
+      })
+      .filter_map(|ent| self.by_id.get(&ent).map(|xform| (ent, xform)))
+  }
+
+  fn add_entity_at_resolution(&mut self, entity: Entity, coords: Hex, resolution: usize) {
+    let ents = self.by_coords[resolution].entry(coords).or_default();
+    if !ents.contains(&entity) {
+      ents.push(entity);
+    }
+  }
+  fn add_entity(&mut self, entity: Entity, xform: &GlobalTransform) {
+    for (i, coords) in self.config.hex_resolutions(xform.coords) {
+      self.add_entity_at_resolution(entity, coords, i);
+    }
+    self.by_id.insert(entity, xform.clone());
+  }
+  fn remove_entity_at_resolution(&mut self, entity: Entity, coords: Hex, resolution: usize) {
+    if let Some(ent_vec) = self.by_coords[resolution].get_mut(&coords) {
+      ent_vec.retain(|e| *e != entity);
+    }
+  }
+  fn remove_entity(&mut self, entity: Entity) -> Option<GlobalTransform> {
+    if let Some(prev) = self.by_id.remove(&entity) {
+      for (i, coords) in self.config.hex_resolutions(prev.coords) {
+        self.remove_entity_at_resolution(entity, coords, i);
+      }
+      Some(prev)
+    } else {
+      None
+    }
+  }
+  fn move_entity(&mut self, entity: Entity, new: &GlobalTransform) {
+    let Some(prev) = self.by_id.insert(entity, new.clone()) else {
+      for (i, coords) in self.config.hex_resolutions(new.coords) {
+        self.add_entity_at_resolution(entity, coords, i);
+      }
+      return;
+    };
+    for (i, prev, new) in self
+      .config
+      .hex_resolutions(prev.coords)
+      .zip(self.config.hex_resolutions(new.coords))
+      .map(|((i, prev), (_, new))| (i, prev, new))
+    {
+      if prev != new {
+        self.remove_entity_at_resolution(entity, prev, i);
+        self.add_entity_at_resolution(entity, new, i);
+      }
+    }
   }
 }
 
 #[derive(SystemParam)]
-pub struct MapEntitiesMut<'w, 's> {
-  pub maps: Res<'w, Maps>,
-  pub tiles: Query<'w, 's, &'static mut Entities>,
+struct MapEntitiesMut<'w, 's> {
+  maps: Res<'w, Maps>,
+  entities: Query<'w, 's, &'static mut Entities>,
 }
 
 #[derive(SystemParam)]
 pub struct MapEntities<'w, 's> {
-  pub maps: Res<'w, Maps>,
-  pub tiles: Query<'w, 's, &'static Entities>,
+  maps: Res<'w, Maps>,
+  entities: Query<'w, 's, &'static Entities>,
 }
 
 impl<'w, 's> MapEntitiesMut<'w, 's> {
-  pub fn by_name_mut(&mut self, name: &str) -> Option<(Entity, Mut<Entities>)> {
+  fn by_name_mut(&mut self, name: &str) -> Option<(Entity, Mut<Entities>)> {
     let id = self.maps.by_name.get(name).copied()?;
-    let tiles = self.tiles.get_mut(id).ok()?;
-    Some((id, tiles))
+    let entities = self.entities.get_mut(id).ok()?;
+    Some((id, entities))
   }
-  pub fn by_name(&self, name: &str) -> Option<(Entity, &Entities)> {
-    let id = self.maps.by_name.get(name).copied()?;
-    let tiles = self.tiles.get(id).ok()?;
-    Some((id, tiles))
+  fn move_entity(
+    &mut self,
+    id: Entity,
+    from_xform: &GlobalTransform,
+    to_xform: &GlobalTransform,
+  ) -> bool {
+    if from_xform == to_xform {
+      return false;
+    } else if from_xform.map == to_xform.map {
+      if let Some((_, mut ents)) = self.by_name_mut(&to_xform.map) {
+        ents.move_entity(id, to_xform);
+      }
+    } else {
+      self.remove_entity(id, from_xform);
+      self.add_entity(id, to_xform);
+    }
+    true
   }
-  pub fn by_id_mut(&mut self, id: Entity) -> Option<Mut<Entities>> {
-    self.tiles.get_mut(id).ok()
+  fn remove_entity(&mut self, id: Entity, xform: &GlobalTransform) {
+    if let Some((_, mut ents)) = self.by_name_mut(&xform.map) {
+      ents.remove_entity(id);
+    }
   }
-  pub fn by_id(&self, id: Entity) -> Option<&Entities> {
-    self.tiles.get(id).ok()
+  fn add_entity(&mut self, id: Entity, xform: &GlobalTransform) {
+    if let Some((_, mut ents)) = self.by_name_mut(&xform.map) {
+      ents.add_entity(id, xform);
+    };
   }
 }
 
 impl<'w, 's> MapEntities<'w, 's> {
   pub fn by_name(&self, name: &str) -> Option<(Entity, &Entities)> {
     let id = self.maps.by_name.get(name).copied()?;
-    let tiles = self.tiles.get(id).ok()?;
-    Some((id, tiles))
+    let entities = self.entities.get(id).ok()?;
+    Some((id, entities))
   }
   pub fn by_id(&self, id: Entity) -> Option<&Entities> {
-    self.tiles.get(id).ok()
+    self.entities.get(id).ok()
   }
 }
 
 /// Marker component for maps.
-#[derive(Component, Reflect, Clone, Default, Deref, Hash, Eq, PartialEq)]
+#[derive(
+  Component, Reflect, Clone, Default, Deref, Hash, Eq, PartialEq, Serialize, Deserialize,
+)]
 #[reflect(Component, Hash)]
 pub struct Map(pub String);
 
-#[derive(Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
+#[derive(
+  Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug, Serialize, Deserialize,
+)]
 #[reflect(Component, Hash)]
 pub struct Transform {
   pub map: String,
@@ -186,18 +335,21 @@ pub struct Transform {
 pub struct GlobalTransform(Transform);
 
 /// Marker component for map tiles.
-#[derive(Component, Reflect, Copy, Clone, Default)]
+#[derive(Component, Reflect, Copy, Clone, Default, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct Tile;
 
-#[derive(Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
+#[derive(Reflect, Clone, Default, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[reflect(Hash, FromWorld)]
 pub struct Symbol {
   pub text: String,
+  #[serde(default)]
   pub style: Style,
 }
 
-#[derive(Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug)]
+#[derive(
+  Component, Reflect, Clone, Default, Eq, PartialEq, Hash, Debug, Serialize, Deserialize,
+)]
 #[reflect(Component, Hash, FromWorld)]
 pub struct Render {
   pub icon: Option<Symbol>,
@@ -208,110 +360,39 @@ pub struct Render {
 #[reflect(Component)]
 pub struct MapWidget(#[reflect(ignore)] HexMap);
 
-fn spawn_maps(mut cmd: Commands, db: SaveDbOwned) {
-  let conn = db.db.clone();
-  cmd.spawn_callback(
-    async move {
-      let map = Map::get_type_registration().type_info().type_path();
-      sqlx::query!(
-        r#"
-          select e.id
-          from entity e
-          where exists (
-            select *
-            from entity_component ec, component c
-            where ec.entity = e.id
-            and c.id = ec.component
-            and c.name = ?
-          )
-        "#,
-        map,
-      )
-      .fetch(&*conn)
-      .map_ok(|res| res.id)
-      .try_collect::<Vec<i64>>()
-      .await
-    },
-    move |res, world| {
-      load_entities(res, world);
-      let conn = world.resource::<Db>().clone();
-      let mut queue = CommandQueue::default();
-      let mut cmds = Commands::new(&mut queue, world);
-      cmds.spawn_callback(
-        async move {
-          let character = Character::get_type_registration().type_info().type_path();
-          let map = Map::get_type_registration().type_info().type_path();
-          let non_player = NonPlayer::get_type_registration().type_info().type_path();
-          sqlx::query!(
-            r#"
-              select e.id
-              from entity e
-              where ((not exists (
-                select *
-                from entity_component ec, component c
-                where ec.entity = e.id
-                and c.id = ec.component
-                and c.name = ?
-              )) or exists (
-                select *
-                from entity_component ec, component c
-                where ec.entity = e.id
-                and c.id = ec.component
-                and c.name = ?
-              )) and (not exists (
-                select *
-                from entity_component ec, component c
-                where ec.entity = e.id
-                and c.id = ec.component
-                and c.name = ?
-              ))
-            "#,
-            character,
-            non_player,
-            map,
-          )
-          .fetch(&*conn)
-          .map_ok(|res| res.id)
-          .try_collect::<Vec<i64>>()
-          .await
-        },
-        load_entities,
-      );
-      queue.apply(world);
-    },
-  );
+impl Serialize for MapWidget {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    serializer.serialize_unit()
+  }
 }
 
-fn load_entities(res: sqlx::Result<Vec<i64>>, world: &mut World) {
-  let db: SaveDbOwned = SaveDb::from_world(world).into();
-  match res {
-    Ok(entities) => {
-      debug!(?entities, "got {} entities to load", entities.len());
-      let db = db.borrowed();
+impl<'de> Deserialize<'de> for MapWidget {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    struct WidgetVisitor;
+    impl<'de> serde::de::Visitor<'de> for WidgetVisitor {
+      type Value = MapWidget;
 
-      for index in entities {
-        let db_entity = DbEntity::from_index(index);
-        let Some(world_entity) = db.map.read().world_entity(db_entity) else {
-          warn!(index, "missing world entity for db entity");
-          continue;
-        };
-        let Some(mut entity) = world.get_or_spawn(world_entity) else {
-          warn!(?world_entity, "entity is no longer valid");
-          continue;
-        };
-        let Some(task) = db.load_db_entity(db_entity) else {
-          continue;
-        };
-        entity.insert(task);
+      fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "the unit type")
+      }
+
+      fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(Default::default())
       }
     }
-    Err(error) => {
-      warn!(%error, "error looking up entities to load");
-    }
+
+    deserializer.deserialize_any(WidgetVisitor)
   }
 }
 
 fn track_maps_system(
+  cfg: Res<MapConfig>,
   mut cmd: Commands,
   mut maps: ResMut<Maps>,
   map_added: Query<(Entity, &Map), Added<Map>>,
@@ -320,7 +401,7 @@ fn track_maps_system(
   for (ent, name) in map_added.iter() {
     maps.by_name.insert((**name).clone(), ent);
     maps.by_id.insert(ent, (**name).clone());
-    cmd.entity(ent).insert(Entities::default());
+    cmd.entity(ent).insert(Entities::new(*cfg));
   }
 
   for ent in removed.read() {
@@ -332,23 +413,41 @@ fn track_maps_system(
 
 fn add_global(
   mut cmd: Commands,
-  query: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
+  query: LiveQuery<Entity, (With<Transform>, Without<GlobalTransform>)>,
 ) {
   for entity in query.iter() {
-    debug!(?entity, "adding global transform");
     cmd.entity(entity).insert(GlobalTransform::default());
+  }
+}
+
+fn unlive(
+  mut map_ents: MapEntitiesMut,
+  query: Query<(Entity, &GlobalTransform)>,
+  mut removed: RemovedComponents<Live>,
+  mut writer: EventWriter<Moved>,
+) {
+  for (entity, xform) in removed.read().filter_map(|ent| query.get(ent).ok()) {
+    map_ents.remove_entity(entity, xform);
+    writer.send(Moved {
+      entity,
+      prev: xform.clone(),
+      new: None,
+    });
   }
 }
 
 fn propagate_transforms(
   mut writer: EventWriter<Moved>,
   mut map_ents: MapEntitiesMut,
-  changed: Query<(Entity, Option<&Parent>), Or<(Added<Transform>, Changed<Transform>)>>,
-  mut data_query: Query<(&Transform, &mut GlobalTransform)>,
-  children: Query<&Children>,
+  changed: LiveQuery<
+    (Entity, Option<&Parent>),
+    Or<(Added<Transform>, Changed<Transform>, Added<Live>)>,
+  >,
+  mut data_query: LiveQuery<(&Transform, &mut GlobalTransform, Ref<Live>)>,
+  children: LiveQuery<&Children>,
 ) {
   for (ent, parent) in changed.iter() {
-    let parent_xform = parent.and_then(|p| data_query.get(**p).map(|(_, g)| g.clone()).ok());
+    let parent_xform = parent.and_then(|p| data_query.get(**p).map(|(_, g, _)| g.clone()).ok());
     propagate_transform(
       &mut writer,
       &mut map_ents,
@@ -360,11 +459,11 @@ fn propagate_transforms(
   }
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct Moved {
   pub entity: Entity,
   pub prev: GlobalTransform,
-  pub new: GlobalTransform,
+  pub new: Option<GlobalTransform>,
 }
 
 fn propagate_transform(
@@ -372,14 +471,14 @@ fn propagate_transform(
   map_ents: &mut MapEntitiesMut,
   entity: Entity,
   parent_xform: Option<&GlobalTransform>,
-  data: &mut Query<(&Transform, &mut GlobalTransform)>,
-  children: &Query<&Children>,
+  data: &mut LiveQuery<(&Transform, &mut GlobalTransform, Ref<Live>)>,
+  children: &LiveQuery<&Children>,
 ) {
-  let my_xform = if let Ok((xform, mut global)) = data.get_mut(entity) {
+  let my_xform = if let Ok((xform, mut global, live)) = data.get_mut(entity) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
       Transform {
         map: parent.map.clone(),
-        coords: xform.coords.rotate_cw(parent.facing.index() as _),
+        coords: parent.coords + xform.coords.rotate_cw(parent.facing.index() as _),
         facing: xform.facing.rotate_cw(parent.facing.index() as _),
       }
     } else {
@@ -388,50 +487,17 @@ fn propagate_transform(
 
     let prev = std::mem::replace(&mut *global, GlobalTransform(xform));
 
-    if prev.map != global.map {
-      if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
-        if let Some(ent_vec) = ents
-          .by_id
-          .remove(&entity)
-          .and_then(|prev| ents.by_coords.get_mut(&prev.coords))
-        {
-          ent_vec.retain(|e| *e != entity);
-        }
-      }
-      if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
-        ents.by_id.insert(entity, (**global).clone());
-        ents
-          .by_coords
-          .entry(global.coords)
-          .or_default()
-          .push(entity);
-      };
-    } else if prev.coords != global.coords {
-      if let Some((_, mut ents)) = map_ents.by_name_mut(&prev.map) {
-        if let Some(ent_vec) = ents
-          .by_id
-          .get(&entity)
-          .map(|t| t.coords)
-          .and_then(|prev| ents.by_coords.get_mut(&prev))
-        {
-          ent_vec.retain(|e| *e != entity);
-        }
-      }
-      if let Some((_, mut ents)) = map_ents.by_name_mut(&global.map) {
-        ents.by_id.insert(entity, (**global).clone());
-        ents
-          .by_coords
-          .entry(global.coords)
-          .or_default()
-          .push(entity);
-      };
+    if prev != *global {
+      map_ents.move_entity(entity, &prev, &*global);
+    } else if live.is_added() {
+      map_ents.add_entity(entity, &*global);
     }
 
-    if prev != *global {
+    if prev != *global || live.is_added() {
       writer.send(Moved {
         entity,
         prev,
-        new: global.clone(),
+        new: Some(global.clone()),
       });
     }
 
@@ -445,29 +511,36 @@ fn propagate_transform(
   }
 }
 
-fn emit_change_events(
+fn moved_to_render_events(
+  mut sent: Local<EntityHashSet>,
   map_entities: MapEntities,
   mut writer: EventWriter<RenderRequest>,
   mut moved: EventReader<Moved>,
-  widgets: Query<(), With<MapWidget>>,
+  widgets: LiveQuery<(), With<MapWidget>>,
   rendered: Query<(), With<Render>>,
 ) {
+  sent.clear();
   for Moved { entity, prev, new } in moved.read() {
     if widgets.contains(*entity) {
       writer.send(RenderRequest(*entity));
+      sent.insert(*entity);
     }
     if rendered.contains(*entity) {
-      for xform in [prev, new] {
+      for xform in Some(prev).into_iter().chain(new) {
         let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
         for coords in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
-          for other in map
-            .by_coords
+          for other in map.by_coords[0]
             .get(&coords)
             .into_iter()
             .flat_map(|ents| ents.iter())
           {
+            if sent.contains(other) {
+              continue;
+            }
+
             if widgets.contains(*other) {
               writer.send(RenderRequest(*other));
+              sent.insert(*other);
             }
           }
         }
@@ -481,19 +554,12 @@ pub struct RenderRequest(pub Entity);
 
 fn render_map_system(
   map_entities: MapEntities,
-  mut puppet_query: Query<(Entity, &GlobalTransform, &Player, &mut MapWidget)>,
+  mut puppet_query: LiveQuery<(Entity, &GlobalTransform, &Player, &mut MapWidget)>,
   player_query: Query<&TelnetOut, With<GMCP>>,
-  render_query: Query<&Render>,
+  render_query: LiveQuery<&Render>,
   mut render_requests: EventReader<RenderRequest>,
 ) {
   let to_render = render_requests.read().map(|e| e.0).collect::<HashSet<_>>();
-
-  if bevy::tasks::ComputeTaskPool::get().thread_num() <= 1 {
-    warn!(
-      par = bevy::tasks::available_parallelism(),
-      "only one thread??"
-    );
-  }
 
   puppet_query
     .par_iter_mut()
@@ -511,27 +577,47 @@ fn render_map_system(
       widget.center(center);
       widget.up_direction(xform.facing);
       for coord in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
-        if !is_visible(xform, coord) && coord != center {
+        if !is_visible(xform, coord, MAP_RADIUS) && coord != center {
           continue;
         }
-        let mut tile = TuiTile::default();
-        for render in map.iter_at(&coord).filter_map(|e| render_query.get(e).ok()) {
+        let tile = widget.tile(coord);
+        for render in map
+          .iter_at(coord, 0)
+          .filter_map(|e| render_query.get(e).ok())
+        {
           if let Some(bg) = render.background.as_ref() {
             tile.background().symbol(&bg.text).style(bg.style.into());
           }
           if let Some(fg) = render.icon.as_ref() {
-            tile.center().symbol(&fg.text).style(fg.style.into());
+            let mut style: TuiStyle = fg.style.into();
+            if coord == xform.coords {
+              style = style.fg(TuiColor::Blue);
+            }
+            tile.center().symbol(&fg.text).style(style);
           }
         }
-
-        if coord == center {
-          tile.background().style(ratatui::style::Style {
-            bg: Some(ratatui::style::Color::Cyan),
-            ..Default::default()
-          });
+      }
+      for (entity, location) in map.find_within(xform.coords, MAP_RADIUS as u32) {
+        if !is_visible(xform, location.coords, MAP_RADIUS) {
+          continue;
         }
 
-        widget.insert(coord, tile);
+        let Some(render) = render_query.get(entity).ok() else {
+          continue;
+        };
+
+        let tile = widget.tile(location.coords);
+
+        if let Some(bg) = render.background.as_ref() {
+          tile.background().symbol(&bg.text).style(bg.style.into());
+        }
+        if let Some(fg) = render.icon.as_ref() {
+          let mut style: TuiStyle = fg.style.into();
+          if location.coords == xform.coords {
+            style = style.fg(TuiColor::Blue);
+          }
+          tile.center().symbol(&fg.text).style(style);
+        }
       }
       let mut renderer = Ansi::default();
       let map_area = Rect {
@@ -540,7 +626,6 @@ fn render_map_system(
         x: 0,
         y: 0,
       };
-      debug!(?entity, "rendering map");
       renderer.resize(map_area);
       widget.render(map_area, &mut renderer);
       let out = out.clone();
@@ -561,7 +646,7 @@ fn render_map_system(
     });
 }
 
-fn is_visible(xform: &GlobalTransform, coord: Hex) -> bool {
+fn is_visible(xform: &GlobalTransform, coord: Hex, radius: u32) -> bool {
   let layout = HexLayout::default();
   let diff = coord - xform.coords;
   let facing = xform.facing;
@@ -576,8 +661,8 @@ fn is_visible(xform: &GlobalTransform, coord: Hex) -> bool {
   let dist = xform.coords.distance_to(coord);
 
   if angle.abs() > std::f32::consts::FRAC_PI_2 {
-    dist <= (MAP_RADIUS / 4) as _
+    dist < (radius / 4) as _
   } else {
-    dist <= MAP_RADIUS as _
+    dist < radius as _
   }
 }

@@ -13,11 +13,15 @@ use bevy::{
   ecs::system::EntityCommands,
   prelude::*,
 };
-use bevy_sqlite::*;
+use bevy_replicon::core::replication_rules::AppRuleExt;
 use hexx::{
   hex,
   EdgeDirection,
   Hex,
+};
+use serde::{
+  Deserialize,
+  Serialize,
 };
 
 use crate::{
@@ -40,7 +44,8 @@ impl Plugin for MovementPlugin {
   fn build(&self, app: &mut App) {
     app.add_event::<MoveEvent>();
 
-    app.persist_component::<Speed>();
+    app.replicate::<Speed>();
+    app.register_type::<Speed>();
 
     app.register_type::<MoveDebt>().register_type::<Moving>();
 
@@ -53,8 +58,8 @@ impl Plugin for MovementPlugin {
 /// The rate at which [MoveDebt] is paid off.
 /// Each [FixedUpdate], the speed values are subtracted from the debt values,
 /// stopping at movement = 0 and rotation = -1.
-#[derive(Component, Debug, Clone, Copy, Reflect)]
-#[reflect(Component)]
+#[derive(Component, Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[reflect(Component, Serialize, Deserialize)]
 pub struct Speed {
   pub movement: f32,
   pub rotation: f32,

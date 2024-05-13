@@ -11,8 +11,11 @@ use bevy::{
   diagnostic::DiagnosticsPlugin,
   prelude::*,
 };
-use bevy_async_util::CallbackPlugin;
-use bevy_sqlite::*;
+use bevy_replicon::core::replication_rules::AppRuleExt;
+use serde::{
+  Deserialize,
+  Serialize,
+};
 use tracing::Level;
 use tracing_subscriber::{
   prelude::*,
@@ -29,11 +32,23 @@ use crate::{
   map::MapPlugin,
   movement::MovementPlugin,
   net::TelnetPlugin,
+  savestate::SaveStatePlugin,
   signal::{
     Signal,
     SignalPlugin,
   },
 };
+
+/// Marker for entites that are "live" and should be included in update queries.
+///
+/// Note that this is different than alive/dead status and is more for
+/// differentiating between entities that are in the world vs in "storage".
+#[derive(Component, Reflect, Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[reflect(Component)]
+pub struct Live;
+
+pub type LiveQuery<'w, 's, D, F = ()> = Query<'w, 's, D, (With<Live>, F)>;
+pub type UnLiveQuery<'w, 's, D, F = ()> = Query<'w, 's, D, (Without<Live>, F)>;
 
 #[derive(SystemSet, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum MudStartup {
@@ -55,12 +70,22 @@ impl Plugin for CorePlugin {
   fn build(&self, app: &mut App) {
     app.configure_sets(
       Startup,
-      (MudStartup::System, MudStartup::Io, MudStartup::World).chain(),
+      (
+        MudStartup::System,
+        MudStartup::Io.run_if(not(on_event::<AppExit>())),
+        MudStartup::World.run_if(not(on_event::<AppExit>())),
+      )
+        .chain(),
     );
     app.configure_sets(
       Update,
       (MudUpdate::Input, MudUpdate::Resolve, MudUpdate::Output).chain(),
     );
+
+    app
+      .register_type::<Parent>()
+      .register_type::<Children>()
+      .register_type::<Live>();
 
     app.add_plugins((
       LogPlugin::default(),
@@ -74,19 +99,20 @@ impl Plugin for CorePlugin {
       LogFrameRatePlugin::<10>,
     ));
 
+    app.add_plugins((
+      SaveStatePlugin::default(),
+      TelnetPlugin,
+      CharacterPlugin,
+      MapPlugin,
+      ActionPlugin,
+      AccountPlugin,
+      GameCommandsPlugin,
+      MovementPlugin,
+    ));
+
+    app.replicate::<Live>();
+
     app.add_systems(Update, signal_handler);
-
-    app.add_plugins((CallbackPlugin, SqlitePlugin, TelnetPlugin));
-
-    app.add_plugins(CharacterPlugin);
-    app.add_plugins(MapPlugin);
-    app.add_plugins(ActionPlugin);
-    app.add_plugins(AccountPlugin);
-    app.add_plugins(GameCommandsPlugin);
-    app.add_plugins(MovementPlugin);
-
-    app.persist_component::<Parent>();
-    app.persist_component::<Children>();
   }
 }
 

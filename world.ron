@@ -1,0 +1,118 @@
+(
+  resources: {
+    "bevy_mud::account::UserDb": (
+      users: {
+        "admin": (
+          hashed_password: "$2b$04$Vpjieg7GSRNH/ts6zaGDY.eQvpYvOu8bNPmEtAVf.nApNaE7qyGai",
+          character: 4294967296,
+        ),
+        "user": (
+          hashed_password: "$2b$04$lgYybBRiqdKRfRjdp26Hc.A/Qqk2InubK1Ick6Jx.ezadCxFAIUwy",
+          character: 4294967299,
+        ),
+      },
+    ),
+  },
+  entities: {
+    4294967296: (
+      components: {
+        "bevy_mud::character::Character": (),
+        "bevy_mud::map::MapWidget": (),
+        "bevy_mud::map::Render": (
+          icon: Some((
+            text: "@",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+          background: None,
+        ),
+        "bevy_mud::movement::Speed": (
+          movement: 3.0,
+          rotation: 3.0,
+        ),
+        "bevy_mud::core::Live": (),
+        "bevy_mud::map::Transform": (
+          map: "default",
+          coords: (
+            x: -2,
+            y: 2,
+          ),
+          facing: (5),
+        ),
+      },
+    ),
+    4294967297: (
+      components: {
+        "bevy_mud::map::Map": ("default"),
+      },
+    ),
+    4294967298: (
+      components: {
+        "bevy_mud::map::Render": (
+          icon: Some((
+            text: "@",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+          background: Some((
+            text: "↖",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+        ),
+        "bevy_mud::core::Live": (),
+        "bevy_mud::map::Transform": (
+          map: "default",
+          coords: (
+            x: 0,
+            y: 0,
+          ),
+          facing: (0),
+        ),
+      },
+    ),
+    4294967299: (
+      components: {
+        "bevy_mud::character::Character": (),
+        "bevy_mud::map::MapWidget": (),
+        "bevy_mud::map::Render": (
+          icon: Some((
+            text: "@",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+          background: None,
+        ),
+        "bevy_mud::movement::Speed": (
+          movement: 3.0,
+          rotation: 3.0,
+        ),
+        "bevy_mud::core::Live": (),
+        "bevy_mud::map::Transform": (
+          map: "default",
+          coords: (
+            x: 3,
+            y: -2,
+          ),
+          facing: (3),
+        ),
+      },
+    ),
+  },
+)

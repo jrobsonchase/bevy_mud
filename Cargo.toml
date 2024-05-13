@@ -1,7 +1,5 @@
 [workspace]
 members = [
-	"bevy_sqlite",
-	"bevy_async_util",
 	"bevy_piccolo",
 ]
 
@@ -14,8 +12,6 @@ default-run = "example"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy_sqlite = { path = "./bevy_sqlite" }
-bevy_async_util = { path = "./bevy_async_util" }
 bevy_piccolo = { path = "./bevy_piccolo" }
 anyhow = "1.0.75"
 bevy_dylib = { version = "0.13", optional = true }
@@ -25,14 +21,10 @@ bevy = { version = "0.13", features = [
 	"bevy_asset",
 	"file_watcher",
 	"trace",
+	"serialize",
 ], default-features = false }
 clap = { version = "4.4.6", features = ["derive"] }
 futures = "0.3.28"
-sqlx = { version = "0.7.3", features = [
-	"runtime-async-std",
-	"sqlite",
-	"chrono",
-] }
 tellem = "0.2.0"
 tokio-util = { version = "0.7.9", features = ["codec", "compat", "io-util"] }
 tracing = { version = "0.1.37", features = ["async-await"] }
@@ -61,17 +53,12 @@ async-std = "1.12.0"
 tokio = "1.37.0"
 async-compat = "0.2.3"
 hexx = { version = "0.17.0", features = ["bevy_reflect", "serde"] }
+bevy_replicon = "0.25.0"
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
 default = ["tracy"]
-
-[patch.'https://github.com/jrobsonchase/bevy_async_util']
-bevy_async_util = { path = "./bevy_async_util" }
-
-[patch.'https://github.com/jrobsonchase/bevy_sqlite']
-bevy_sqlite = { path = "./bevy_sqlite" }
 
 [patch.'https://github.com/jrobsonchase/piccolo']
 piccolo = { path = "./piccolo" }

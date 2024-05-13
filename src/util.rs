@@ -1,7 +1,15 @@
+use std::fmt::Debug;
+
 use bevy::{
   ecs::query::QueryData,
   prelude::*,
 };
+
+pub fn debug_event<E: Event + Debug>(mut reader: EventReader<E>) {
+  for event in reader.read() {
+    debug!(?event)
+  }
+}
 
 #[derive(QueryData)]
 pub struct HierEntity<'a> {

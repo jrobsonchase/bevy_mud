@@ -72,6 +72,6 @@ impl Plugin for SignalPlugin {
     app
       .add_event::<Signal>()
       .add_systems(Startup, start_handler.in_set(MudStartup::System))
-      .add_systems(Update, check_flag);
+      .add_systems(First, check_flag);
   }
 }

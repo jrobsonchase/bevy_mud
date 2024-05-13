@@ -7,16 +7,12 @@ use std::{
 
 use anyhow::anyhow;
 use bevy::{
-  ecs::{
-    entity::EntityHashMap,
-    system::Command,
-  },
+  ecs::system::Command,
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
   scene::{
     serde::EntitiesSerializer,
     serialize_ron,
-    DynamicEntity,
   },
 };
 use serde::de::DeserializeSeed;
@@ -135,30 +131,30 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       out.line(format!("No such entity: {}", ent.to_bits()));
       return;
     });
-    let res = reg
-      .get_with_type_path(&component)
-      .ok_or_else(|| anyhow!("No such component: '{}'", component))
-      .and_then(|info| {
-        let de = TypedReflectDeserializer::new(info, &reg);
-        let mut seed = ron::Deserializer::from_str(&data)?;
-        Ok(de.deserialize(&mut seed)?)
-      });
-    let component = try_res!(res, err => {
+
+    let Some(registration) = reg.get_with_type_path(&component) else {
+      out.line(format!("No such component: '{}'", component));
+      return;
+    };
+
+    let Some(reflect_component) = registration.data::<ReflectComponent>() else {
+      out.line(format!("Component not reflected: '{}'", component));
+      return;
+    };
+
+    let de = TypedReflectDeserializer::new(registration, &reg);
+
+    let data = try_res!({
+      let mut seed = ron::Deserializer::from_str(&data)?;
+      Result::<_, anyhow::Error>::Ok(de.deserialize(&mut seed)?)
+    }, err => {
       out.line(format!("Invaid component data: {}", err));
       return;
     });
-    let scene = DynamicScene {
-      entities: vec![DynamicEntity {
-        entity: ent,
-        components: vec![component],
-      }],
-      ..Default::default()
-    };
-    let mut mappings = EntityHashMap::default();
-    mappings.insert(ent, ent);
-    try_res!(scene.write_to_world(world, &mut mappings), err => {
-      out.line(format!("Failed to insert component: {}", err));
-    });
+
+    debug!(?data, component, entity = ?ent, "applying component");
+
+    reflect_component.apply_or_insert(&mut world.entity_mut(ent), &*data, &reg);
     out.line("Success!");
   }))
 }

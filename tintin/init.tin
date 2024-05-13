@@ -11,6 +11,9 @@
 #variable TELNET[SE]   \xF0;
 #variable TELNET[GMCP] \xC9;
 
+#variable USERNAME admin
+#variable PASSWORD password
+
 #var map {}
 
 #EVENT {IAC WILL GMCP}
@@ -43,8 +46,8 @@
 #event {SESSION CONNECTED}
 {
 	.resize;
-	#line oneshot #action {^Account name:} {#send admin;};
-	#line oneshot #action {^Creating new account} {#send password;};
+	#line oneshot #action {^Account name:} {#send $USERNAME;};
+	#line oneshot #action {^Creating new account} {#send $PASSWORD;};
 	#line oneshot #action {^Password:} {#send password;};
 	#prompt {^> %*} {%%0};
 }
