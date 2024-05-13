@@ -152,7 +152,7 @@ impl From<Color> for TuiColor {
 }
 
 #[derive(Copy, Clone, Reflect, Default, Eq, PartialEq, Hash, Debug)]
-#[reflect(Debug, Hash)]
+#[reflect(Debug, Hash, FromWorld)]
 pub struct Style {
   pub fg: Option<Color>,
   pub bg: Option<Color>,

@@ -54,7 +54,7 @@ use crate::{
   },
 };
 
-const MAP_RADIUS: u64 = 8;
+const MAP_RADIUS: u64 = 9;
 
 pub struct MapPlugin;
 
@@ -335,7 +335,6 @@ fn add_global(
   query: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
 ) {
   for entity in query.iter() {
-    debug!(?entity, "adding global transform");
     cmd.entity(entity).insert(GlobalTransform::default());
   }
 }
@@ -379,7 +378,7 @@ fn propagate_transform(
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
       Transform {
         map: parent.map.clone(),
-        coords: xform.coords.rotate_cw(parent.facing.index() as _),
+        coords: parent.coords + xform.coords.rotate_cw(parent.facing.index() as _),
         facing: xform.facing.rotate_cw(parent.facing.index() as _),
       }
     } else {
@@ -524,13 +523,6 @@ fn render_map_system(
           }
         }
 
-        if coord == center {
-          tile.background().style(ratatui::style::Style {
-            bg: Some(ratatui::style::Color::Cyan),
-            ..Default::default()
-          });
-        }
-
         widget.insert(coord, tile);
       }
       let mut renderer = Ansi::default();
@@ -540,7 +532,6 @@ fn render_map_system(
         x: 0,
         y: 0,
       };
-      debug!(?entity, "rendering map");
       renderer.resize(map_area);
       widget.render(map_area, &mut renderer);
       let out = out.clone();
