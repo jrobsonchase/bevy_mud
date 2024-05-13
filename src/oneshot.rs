@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::{
-  ecs::system::Command,
+  ecs::world::Command,
   prelude::*,
 };
 

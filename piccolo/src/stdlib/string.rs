@@ -1,5 +1,3 @@
-use anyhow::bail;
-
 use crate::{
   Callback,
   CallbackReturn,

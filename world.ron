@@ -34,7 +34,6 @@
           movement: 3.0,
           rotation: 3.0,
         ),
-        "bevy_mud::core::Live": (),
         "bevy_mud::map::Transform": (
           map: "default",
           coords: (
@@ -103,7 +102,6 @@
           movement: 3.0,
           rotation: 3.0,
         ),
-        "bevy_mud::core::Live": (),
         "bevy_mud::map::Transform": (
           map: "default",
           coords: (

@@ -19,8 +19,7 @@ use bevy::ecs::system::Resource;
 use bevy::log::debug;
 use bevy::prelude::Deref;
 use bevy::reflect::Reflect;
-use bevy::tasks::futures_lite::FutureExt;
-use bevy::utils::BoxedFuture;
+use bevy::utils::ConditionalSendFuture;
 use parking_lot::RwLock;
 use piccolo::compiler::{
     compile_chunk,
@@ -68,7 +67,7 @@ impl AssetLoader for LuaLoader {
         reader: &'a mut Reader,
         _: &'a Self::Settings,
         ctx: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         let path = (&self.interner).intern(ctx.asset_path().path().as_os_str().as_bytes());
         debug!(%path, "loading lua script");
         async move {
@@ -83,7 +82,6 @@ impl AssetLoader for LuaLoader {
                 compile_time: time::Instant::now(),
             })
         }
-        .boxed()
     }
 
     fn extensions(&self) -> &[&str] {

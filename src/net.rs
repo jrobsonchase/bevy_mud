@@ -153,7 +153,7 @@ fn start_listener(arg: Res<PortArg>, mut cmd: Commands, mut exit: EventWriter<Ap
     Ok(l) => l,
     Err(err) => {
       warn!(?err, "failed to start tcp listener, exiting.");
-      exit.send(AppExit);
+      exit.send(AppExit::Error(1u8.try_into().unwrap()));
       return;
     }
   };

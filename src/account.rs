@@ -7,7 +7,7 @@ use bcrypt::{
 use bevy::{
   ecs::{
     entity::MapEntities,
-    system::Command,
+    world::Command,
   },
   prelude::*,
   utils::HashMap,

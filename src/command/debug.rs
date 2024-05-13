@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::anyhow;
 use bevy::{
-  ecs::system::Command,
+  ecs::world::Command,
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
   scene::{
@@ -46,10 +46,10 @@ fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
           .allow_all()
           .extract_entities(entities.into_iter())
           .build();
-        let registry = world.resource::<AppTypeRegistry>();
+        let registry = world.resource::<AppTypeRegistry>().read();
         let serializer = EntitiesSerializer {
           entities: &scene.entities,
-          registry,
+          registry: &registry,
         };
         let serialized = serialize_ron(serializer).unwrap();
         out.line("Entities:");
@@ -278,7 +278,7 @@ fn dump_to_file(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .deny_all_resources()
       .extract_entities(entities)
       .build();
-    let serialized = try_res!(scene.serialize_ron(world.resource::<AppTypeRegistry>()),
+    let serialized = try_res!(scene.serialize(&world.resource::<AppTypeRegistry>().read()),
       err => {
         _ = writeln!(&out, "error serializing entities: {}", err);
         return;

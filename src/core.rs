@@ -22,6 +22,7 @@ use tracing_subscriber::{
   registry::Registry,
   EnvFilter,
 };
+use tracing_tracy::DefaultConfig;
 
 use crate::{
   account::AccountPlugin,
@@ -120,7 +121,7 @@ fn signal_handler(mut signal: EventReader<Signal>, mut exit: EventWriter<AppExit
   match try_opt!(signal.read().next().cloned(), return) {
     signal @ Signal::SIGINT | signal @ Signal::SIGTERM | signal @ Signal::SIGQUIT => {
       debug!(?signal, "received signal, exiting");
-      exit.send(AppExit);
+      exit.send(AppExit::Success);
     }
     _ => {}
   }
@@ -169,7 +170,7 @@ impl Plugin for LogPlugin {
     let subscriber = subscriber.with(tracing_error::ErrorLayer::default());
 
     #[cfg(feature = "tracy")]
-    let tracy_layer = tracing_tracy::TracyLayer::new();
+    let tracy_layer = tracing_tracy::TracyLayer::new(DefaultConfig::default());
 
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
       .pretty()

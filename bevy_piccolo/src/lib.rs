@@ -40,7 +40,7 @@ pub trait AppWorldExt {
 
 impl AppWorldExt for App {
     fn add_lua_system<'a>(&mut self, script: impl Into<AssetPath<'a>>) {
-        self.world.add_lua_system(script);
+        self.world_mut().add_lua_system(script);
     }
 }
 
@@ -327,15 +327,15 @@ mod tests {
         app.add_lua_system("scripts/hello.lua");
 
         let foo_only = app
-            .world
+            .world_mut()
             .spawn(Foo {
                 bar: 5,
                 baz: "asdf".into(),
             })
             .id();
-        let spam_only = app.world.spawn(Spam("eggs".into())).id();
+        let spam_only = app.world_mut().spawn(Spam("eggs".into())).id();
         let both = app
-            .world
+            .world_mut()
             .spawn((
                 Foo {
                     bar: 501,

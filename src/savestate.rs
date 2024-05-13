@@ -93,7 +93,7 @@ fn load_system(world: &mut World) {
   if let Err(error) = res {
     error!(%error, "failed to load world from file, exiting");
     world.send_event(LoadFailed);
-    world.send_event(AppExit);
+    world.send_event(AppExit::Error(1.try_into().unwrap()));
   }
 }
 
@@ -106,7 +106,7 @@ fn final_save_system(world: &World) {
     .extract_resources()
     .build();
   bevy_replicon::scene::replicate_into(&mut scene, world);
-  let serialized = match scene.serialize_ron(&registry) {
+  let serialized = match scene.serialize(&registry.read()) {
     Ok(s) => s,
     Err(error) => {
       warn!(%error, "error serializing world");
@@ -148,7 +148,7 @@ fn save_system(
     AsyncComputeTaskPool::get()
       .spawn(async move {
         let serialize_start = Instant::now();
-        let serialized = match scene.serialize_ron(&registry) {
+        let serialized = match scene.serialize(&registry.read()) {
           Ok(s) => s,
           Err(error) => {
             warn!(%error, "error serializing world");

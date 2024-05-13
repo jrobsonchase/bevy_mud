@@ -433,13 +433,13 @@ impl<'a> Widget for &'a HexMap {
               continue;
             }
             if let Some((x, y)) = visible(area, x as i32 + bg_off, y as i32) {
-              buf.set_string(x, y, &bg.0.symbol, bg.0.style());
+              buf.set_string(x, y, &bg.0.symbol(), bg.0.style());
             }
           }
         }
 
         if let Some(cell) = tile.center.as_ref() {
-          buf.set_string(x, y, &cell.symbol, cell.style());
+          buf.set_string(x, y, &cell.symbol(), cell.style());
         }
 
         for (i, (x_off, y_off)) in EDGE_OFFSETS.into_iter().enumerate() {
@@ -483,7 +483,7 @@ impl<'a> Widget for &'a HexMap {
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                 .unwrap()
                 .0;
-              buf.set_string(x, y, &bg.symbol, bg.style());
+              buf.set_string(x, y, &bg.symbol(), bg.style());
             }
           }
         }

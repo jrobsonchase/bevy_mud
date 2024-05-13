@@ -34,12 +34,12 @@ fn main() {
     app.register_type::<Foo>();
     app.register_type::<Spam>();
     app.add_lua_system("scripts/hello.lua");
-    app.world.spawn(Foo {
+    app.world_mut().spawn(Foo {
         bar: 5,
         baz: "asdf".into(),
     });
-    app.world.spawn(Spam("eggs".into()));
-    app.world.spawn((
+    app.world_mut().spawn(Spam("eggs".into()));
+    app.world_mut().spawn((
         Foo {
             bar: 501,
             baz: "asejf".into(),

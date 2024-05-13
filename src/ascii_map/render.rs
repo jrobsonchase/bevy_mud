@@ -70,7 +70,7 @@ impl Display for Ansi {
       for x in area.x..area.x + area.width {
         let cell = self.get(x, y);
         let style = to_ansi(cell.style());
-        let sym = &cell.symbol;
+        let sym = &cell.symbol();
         if style != prev_style {
           write!(f, "{}", prev_style.infix(style)).unwrap();
         }

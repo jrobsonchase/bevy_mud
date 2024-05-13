@@ -45,7 +45,6 @@ use crate::{
       HexMap,
       Modifier,
       Style,
-      Tile as TuiTile,
     },
   },
   character::Player,
