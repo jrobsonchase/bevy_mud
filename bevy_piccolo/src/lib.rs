@@ -1,16 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::{
-    thread,
-    time,
-};
+use std::time;
 
 use anyhow::bail;
-use anyhow::Context as _;
-use anyhow::{
-    anyhow,
-    Error,
-};
+use anyhow::Error;
 use asset::LuaProto;
 use bevy::asset::AssetPath;
 use bevy::ecs::component::Component;
@@ -24,11 +17,9 @@ use piccolo::{
     Executor,
     FromMultiValue,
     FromValue,
-    Fuel,
     Function,
     FunctionPrototype,
     IntoMultiValue,
-    IntoValue,
     StashedExecutor,
     StashedTable,
     StaticError,
