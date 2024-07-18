@@ -59,14 +59,14 @@
           sqlite-wrapped
           tintin
           sqlx-cli
-          rust-analyzer-nightly
+          # rust-analyzer-nightly
           fenix.complete.clippy
           fenix.complete.rustfmt
         ];
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         RUST_BACKTRACE = "true";
         DATABASE_URL = "sqlite://base-db.sqlite";
-        RUSTC_WRAPPR = "${pkgs.sccache}/bin/sccache";
+        # RUSTC_WRAPPR = "${pkgs.sccache}/bin/sccache";
       };
     });
 }
