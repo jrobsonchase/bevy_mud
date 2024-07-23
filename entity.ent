@@ -1,0 +1,30 @@
+(
+  resources: {},
+  entities: {
+    4294967316: (
+      components: {
+        "bevy_mud::map::Render": (
+          icon: Some((
+            text: "A",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+          background: None,
+        ),
+        "bevy_mud::core::Live": (),
+        "bevy_mud::map::Transform": (
+          map: "default",
+          coords: (
+            x: 1,
+            y: 0,
+          ),
+          facing: (0),
+        ),
+      },
+    ),
+  },
+)

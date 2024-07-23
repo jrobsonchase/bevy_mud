@@ -36,6 +36,7 @@ use crate::{
     Transform,
   },
   output::PlayerOutput,
+  util::debug_trigger,
 };
 
 pub struct MovementPlugin;
@@ -49,9 +50,11 @@ impl Plugin for MovementPlugin {
 
     app.register_type::<MoveDebt>().register_type::<Moving>();
 
-    app.add_systems(FixedUpdate, movement_system);
-    app.add_systems(FixedUpdate, moving_output.before(movement_system));
-    app.add_systems(Update, stop_moving.after(movement_system));
+    app.add_systems(FixedUpdate, (movedebt_system, movement_system).chain());
+    app.observe(debug_trigger::<MoveEvent>);
+    app.observe(debug_trigger::<StopEvent>);
+    app.observe(moving_output);
+    app.observe(stop_moving);
   }
 }
 
@@ -200,11 +203,13 @@ impl Action for MoveAction {
       entity.insert(action);
       let id = entity.id();
       entity.world_scope(|world| {
-        world.send_event(MoveEvent {
-          entity: id,
-          typ: MoveState::Start,
-          action,
-        });
+        world.trigger_targets(
+          MoveEvent {
+            typ: MoveState::Start,
+            action,
+          },
+          id,
+        );
       });
 
       if !entity.contains::<Moving>() {
@@ -222,40 +227,36 @@ pub enum MoveState {
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct MoveEvent {
-  pub entity: Entity,
   pub typ: MoveState,
   pub action: MoveAction,
 }
 
+fn movedebt_system(mut query: Query<(&mut MoveDebt, &Speed)>) {
+  query.par_iter_mut().for_each(|(mut debt, speed)| {
+    if debt.movement > 0f32 {
+      debt.movement = 0f32.max(debt.movement - (speed.movement / 60f32));
+    }
+    if debt.rotation > -1f32 {
+      debt.rotation = (-1f32).max(debt.rotation - (speed.rotation / 60f32));
+    }
+  })
+}
+
 fn movement_system(
   cmd: ParallelCommands,
-  mut query: Query<(
-    Entity,
-    &mut MoveDebt,
-    &Speed,
-    Option<&MoveAction>,
-    Option<&mut Transform>,
-  )>,
+  mut query: Query<(Entity, &MoveDebt, &Speed, &MoveAction, &mut Transform)>,
 ) {
   query
     .par_iter_mut()
-    .for_each(|(ent, mut debt, speed, action, xform)| {
-      if debt.movement > 0f32 {
-        debt.movement = 0f32.max(debt.movement - (speed.movement / 60f32));
-      }
-      if debt.rotation > -1f32 {
-        debt.rotation = (-1f32).max(debt.rotation - (speed.rotation / 60f32));
-      }
-
-      let mut xform = try_opt!(xform, return);
-
-      let action = *try_opt!(action, return);
+    .for_each(|(ent, debt, speed, action, mut xform)| {
+      debug!(entity = %ent, ?debt, ?speed, ?action, location = ?xform, "movement system");
+      let action = *action;
       let moved = match action {
-        MoveAction::MoveAbsolute(off) if debt.movement == 0f32 => {
+        MoveAction::MoveAbsolute(off) if debt.movement <= 0f32 => {
           xform.coords += off;
           true
         }
-        MoveAction::MoveRelative(off) if debt.movement == 0f32 => {
+        MoveAction::MoveRelative(off) if debt.movement <= 0f32 => {
           let rotation = xform.facing.index();
           xform.coords += off.rotate_cw(rotation as _);
           true
@@ -288,11 +289,13 @@ fn movement_system(
             }
             entity.remove::<(MoveAction, Busy)>();
             entity.world_scope(|world| {
-              world.send_event(MoveEvent {
-                entity: ent,
-                typ: MoveState::Finish,
-                action,
-              });
+              world.trigger_targets(
+                MoveEvent {
+                  typ: MoveState::Finish,
+                  action,
+                },
+                ent,
+              );
             });
           });
         });
@@ -310,55 +313,54 @@ const HUMAN_DIRECTIONS: [&str; 6] = [
 ];
 
 fn moving_output(
+  trigger: Trigger<MoveEvent>,
   output: PlayerOutput,
-  mut startstop_events: EventReader<MoveEvent>,
   locations: Query<&GlobalTransform>,
 ) {
-  for ev in startstop_events.read() {
-    let Some(out) = output.get(ev.entity) else {
-      continue;
-    };
-    let Some(xform) = locations.get(ev.entity).ok() else {
-      continue;
-    };
+  let entity = trigger.entity();
+  let ev = trigger.event();
+  let Some(out) = output.get(entity) else {
+    return;
+  };
+  let Some(xform) = locations.get(entity).ok() else {
+    return;
+  };
 
-    let start = match ev.typ {
-      // MoveState::Start => "You start to",
-      MoveState::Start => continue,
-      MoveState::Finish => "You",
-    };
+  let start = match ev.typ {
+    // MoveState::Start => "You start to",
+    MoveState::Start => return,
+    MoveState::Finish => "You",
+  };
 
-    let (action, direction) = match ev.action.to_relative(xform.facing) {
-      MoveAction::Turn(dir) => (
-        "turn",
-        match 0.cmp(&dir) {
-          Ordering::Less => "to your right",
-          Ordering::Greater => "to your left",
-          _ => "... nowhere? That seems wrong",
-        },
-      ),
-      MoveAction::MoveRelative(coords) => (
-        "move",
-        HUMAN_DIRECTIONS
-          .iter()
-          .enumerate()
-          .find_map(|(i, msg)| {
-            if hex(0, 0).main_direction_to(coords) == EdgeDirection::ALL_DIRECTIONS[i] {
-              Some(*msg)
-            } else {
-              None
-            }
-          })
-          .unwrap_or("... nowhere? That seems wrong"),
-      ),
-      _ => unreachable!(),
-    };
-    out.line(format!("{} {} {}.", start, action, direction));
-  }
+  let (action, direction) = match ev.action.to_relative(xform.facing) {
+    MoveAction::Turn(dir) => (
+      "turn",
+      match 0.cmp(&dir) {
+        Ordering::Less => "to your right",
+        Ordering::Greater => "to your left",
+        _ => "... nowhere? That seems wrong",
+      },
+    ),
+    MoveAction::MoveRelative(coords) => (
+      "move",
+      HUMAN_DIRECTIONS
+        .iter()
+        .enumerate()
+        .find_map(|(i, msg)| {
+          if hex(0, 0).main_direction_to(coords) == EdgeDirection::ALL_DIRECTIONS[i] {
+            Some(*msg)
+          } else {
+            None
+          }
+        })
+        .unwrap_or("... nowhere? That seems wrong"),
+    ),
+    _ => unreachable!(),
+  };
+  out.line(format!("{} {} {}.", start, action, direction));
 }
 
-fn stop_moving(mut events: EventReader<StopEvent>, mut cmd: Commands) {
-  for event in events.read() {
-    cmd.entity(**event).remove::<(Busy, Moving, MoveAction)>();
-  }
+fn stop_moving(trigger: Trigger<StopEvent>, mut cmd: Commands) {
+  let entity = trigger.entity();
+  cmd.entity(entity).remove::<(Busy, Moving, MoveAction)>();
 }

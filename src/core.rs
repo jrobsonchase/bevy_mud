@@ -9,7 +9,12 @@ use bevy::{
     ScheduleRunnerPlugin,
   },
   diagnostic::DiagnosticsPlugin,
+  ecs::component::{
+    ComponentHooks,
+    StorageType,
+  },
   prelude::*,
+  scene::ScenePlugin,
 };
 use bevy_replicon::core::replication_rules::AppRuleExt;
 use serde::{
@@ -38,6 +43,11 @@ use crate::{
     Signal,
     SignalPlugin,
   },
+  util::{
+    debug_lifecycle,
+    debug_trigger,
+    DebugLifecycle,
+  },
 };
 
 /// Marker for entites that are "live" and should be included in update queries.
@@ -47,6 +57,102 @@ use crate::{
 #[derive(Component, Reflect, Debug, Default, Clone, Copy, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct Live;
+
+fn live_removed(
+  trigger: Trigger<OnRemove, Live>,
+  mut cmd: Commands,
+  children_query: Query<&Children>,
+  parent_query: Query<&Parent>,
+  live_query: LiveQuery<()>,
+) {
+  let entity = trigger.entity();
+  // Propagate un-liveness to children
+  let children = children_query
+    .get(entity)
+    .map(|c| c.iter().cloned())
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Entity>>();
+  for child in children {
+    debug!(
+      entity = entity.to_bits(),
+      child = child.to_bits(),
+      "propagating un-liveness to child"
+    );
+    cmd.entity(child).remove::<Live>();
+  }
+
+  // Don't let live entities have dead children. That's just sad :(
+  if parent_query
+    .get(entity)
+    .and_then(|p| live_query.get(p.get()))
+    .is_ok()
+  {
+    warn!(
+      entity = entity.to_bits(),
+      parent = parent_query.get(entity).unwrap().get().to_bits(),
+      "removing dead child of live parent"
+    );
+    cmd.entity(entity).remove_parent();
+  }
+}
+fn live_added(trigger: Trigger<OnAdd, Live>, mut cmd: Commands, children_query: Query<&Children>) {
+  let entity = trigger.entity();
+  // Propagate liveness to children
+  let children = children_query
+    .get(entity)
+    .map(|c| c.iter().cloned())
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Entity>>();
+  for child in children {
+    debug!(
+      entity = entity.to_bits(),
+      child = child.to_bits(),
+      "propagating liveness to child"
+    );
+    cmd.entity(child).insert(Live);
+  }
+}
+
+fn live_parent_inserted(
+  trigger: Trigger<OnInsert, Parent>,
+  mut cmd: Commands,
+  live: Query<Has<Live>>,
+  parent: Query<&Parent>,
+) {
+  let child = trigger.entity();
+  let Ok(parent) = parent.get(child).map(|p| p.get()) else {
+    warn!(
+      child = child.to_bits(),
+      "inserted parent component not found for child"
+    );
+    return;
+  };
+  let parent_live = live.get(parent).unwrap_or_else(|_| {
+    warn!(
+      parent = parent.to_bits(),
+      child = child.to_bits(),
+      "parent not found, assuming dead"
+    );
+    false
+  });
+  if parent_live {
+    debug!(
+      child = child.to_bits(),
+      parent = parent.to_bits(),
+      "adding Live due to hierarchy change"
+    );
+    cmd.entity(child).insert(Live);
+  } else {
+    debug!(
+      child = child.to_bits(),
+      parent = parent.to_bits(),
+      "removing Live due to hierarchy change"
+    );
+    cmd.entity(child).remove::<Live>();
+  }
+}
 
 pub type LiveQuery<'w, 's, D, F = ()> = Query<'w, 's, D, (With<Live>, F)>;
 pub type UnLiveQuery<'w, 's, D, F = ()> = Query<'w, 's, D, (Without<Live>, F)>;
@@ -96,6 +202,7 @@ impl Plugin for CorePlugin {
       HierarchyPlugin,
       DiagnosticsPlugin,
       AssetPlugin::default(),
+      ScenePlugin,
       SignalPlugin,
       LogFrameRatePlugin::<10>,
     ));
@@ -113,12 +220,17 @@ impl Plugin for CorePlugin {
 
     app.replicate::<Live>();
 
-    app.add_systems(Update, signal_handler);
+    app
+      .debug_lifecycle::<Live>("Live")
+      .observe(live_added)
+      .observe(live_removed)
+      .observe(signal_handler)
+      .observe(live_parent_inserted);
   }
 }
 
-fn signal_handler(mut signal: EventReader<Signal>, mut exit: EventWriter<AppExit>) {
-  match try_opt!(signal.read().next().cloned(), return) {
+fn signal_handler(signal: Trigger<Signal>, mut exit: EventWriter<AppExit>) {
+  match signal.event() {
     signal @ Signal::SIGINT | signal @ Signal::SIGTERM | signal @ Signal::SIGQUIT => {
       debug!(?signal, "received signal, exiting");
       exit.send(AppExit::Success);

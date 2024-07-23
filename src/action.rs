@@ -1,6 +1,7 @@
 use std::{
   any::Any,
   collections::VecDeque,
+  fmt::Debug,
 };
 
 use bevy::{
@@ -20,10 +21,10 @@ impl Plugin for ActionPlugin {
   }
 }
 
-#[derive(Deref, Event, Debug, Clone, Copy, Eq, PartialEq)]
-pub struct StopEvent(pub Entity);
+#[derive(Event, Debug, Clone, Copy, Eq, PartialEq)]
+pub struct StopEvent;
 
-pub trait Action: Any + Send + Sync + 'static {
+pub trait Action: Debug + Any + Send + Sync + 'static {
   /// Execute the action.
   fn execute(&self, cmd: &mut EntityCommands);
 
@@ -50,12 +51,14 @@ fn run_actions(cmd: ParallelCommands, mut query: Query<(Entity, &mut Queue), Wit
   query.par_iter_mut().for_each(|(ent, mut q)| {
     let mut busy = false;
     while let Some(action) = q.front() {
+      debug!(entity = %ent, ?action, "running action");
       if busy && action.waits() {
         break;
       }
       cmd.command_scope(|mut c| {
         let mut ec = c.entity(ent);
         if action.busies() {
+          debug!(entity = %ent, "busying");
           busy = true;
           ec.insert(Busy);
         }

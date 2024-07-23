@@ -31,3 +31,7 @@ stop:
 .PHONY: start
 start: build stop
 	RUST_LOG=$(RUST_LOG) cargo run --features=$(FEATURES) $(CARGO_ARGS)  &
+
+.PHONY: watch
+watch:
+	cargo watch -i 'tintin/*' -i '*.ron' -i 'assets/**/*' --no-process-group --no-restart --why -s 'make start'

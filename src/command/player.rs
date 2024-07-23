@@ -103,7 +103,7 @@ fn stop(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       queue.clear();
     }
     let id = puppet.id();
-    world.send_event(StopEvent(id));
+    world.trigger_targets(StopEvent, id);
   }))
 }
 

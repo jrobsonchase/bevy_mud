@@ -11,7 +11,7 @@
 #variable TELNET[SE]   \xF0;
 #variable TELNET[GMCP] \xC9;
 
-#variable USERNAME admin
+#variable USERNAME user
 #variable PASSWORD password
 
 #var map {}
@@ -45,6 +45,7 @@
 
 #event {SESSION CONNECTED}
 {
+	#history read history.txt;
 	.resize;
 	#line oneshot #action {^Account name:} {#send $USERNAME;};
 	#line oneshot #action {^Creating new account} {#send $PASSWORD;};
@@ -54,10 +55,12 @@
 
 #event {SESSION TIMED OUT}
 {
+	#history write history.txt;
 	#gts #delay 1 .connect;
 }
 #event {SESSION DISCONNECTED}
 {
+	#history write history.txt;
 	#gts #delay 1 .connect;
 }
 

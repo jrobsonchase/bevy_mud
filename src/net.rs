@@ -99,9 +99,16 @@ impl Plugin for TelnetPlugin {
       .add_systems(First, new_conns)
       .add_systems(First, telnet_handler)
       .add_systems(Last, reap_conns)
-      .add_systems(Last, print_reaped_conns.after(reap_conns));
+      .add_systems(Last, print_reaped_conns.after(reap_conns))
+      .observe(gmcp_observer);
   }
 }
+
+#[derive(Deref, Event, Debug, Clone)]
+pub struct TelnetEvent(Event);
+
+#[derive(Deref, Event, Debug, Clone)]
+pub struct LineEvent(String);
 
 #[derive(Resource, Debug, Copy, Clone)]
 pub struct PortArg(pub u32);
@@ -447,19 +454,36 @@ fn print_reaped_conns(mut conns: RemovedComponents<TelnetIn>) {
 #[reflect(Component)]
 pub struct GMCP;
 
-pub fn telnet_handler(mut cmd: Commands, mut query: Query<(Entity, &mut TelnetIn)>) {
-  for (entity, mut input) in query.iter_mut() {
-    while let Some(event) = input.next_telnet() {
-      match event {
-        Event::Negotiation(Cmd::DONT, Opt::Known(KnownOpt::GMCP)) => {
-          debug!(?entity, "not enabling GMCP");
-        }
-        Event::Negotiation(Cmd::DO, Opt::Known(KnownOpt::GMCP)) => {
-          debug!(entity = ?entity.to_bits(), "enabling GMCP");
-          cmd.entity(entity).insert(GMCP);
-        }
-        _ => debug!(?event, "ignoring telnet event"),
+pub fn telnet_handler(cmd: ParallelCommands, mut query: Query<(Entity, &mut TelnetIn)>) {
+  query.par_iter_mut().for_each(|(entity, mut input)| {
+    while input.peek().is_some() {
+      if let Some(event) = input.next_telnet() {
+        cmd.command_scope(move |mut cmd| {
+          cmd.trigger_targets(TelnetEvent(event), entity);
+        });
+      } else {
+        break;
       }
+      // if let Some(line) = input.next_line() {
+      //   cmd.command_scope(move |mut cmd| {
+      //     cmd.trigger_targets(LineEvent(line), entity);
+      //   });
+      // }
     }
+  })
+}
+
+fn gmcp_observer(trigger: Trigger<TelnetEvent>, mut cmd: Commands) {
+  let event = trigger.event();
+  let entity = trigger.entity();
+  match **event {
+    Event::Negotiation(Cmd::DONT, Opt::Known(KnownOpt::GMCP)) => {
+      debug!(?entity, "not enabling GMCP");
+    }
+    Event::Negotiation(Cmd::DO, Opt::Known(KnownOpt::GMCP)) => {
+      debug!(entity = ?entity.to_bits(), "enabling GMCP");
+      cmd.entity(entity).insert(GMCP);
+    }
+    _ => {}
   }
 }

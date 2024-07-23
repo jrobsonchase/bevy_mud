@@ -18,13 +18,34 @@ use bevy::{
   tasks::AsyncComputeTaskPool,
   time::Stopwatch,
 };
-use bevy_replicon::core::Replicated;
-use serde::de::DeserializeSeed;
+use bevy_replicon::{
+  core::{
+    replication_rules::AppRuleExt,
+    Replicated,
+  },
+  parent_sync::ParentSync,
+};
+use serde::{
+  de::DeserializeSeed,
+  Serialize,
+};
 
+use self::{
+  entity::{
+    Save,
+    SavedEntity,
+  },
+  loader::SavedEntityLoader,
+};
 use crate::{
   account::UserDb,
   core::MudStartup,
+  util::DebugLifecycle,
 };
+
+pub mod entity;
+pub mod loader;
+pub mod systems;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SaveStatePlugin(f32);
@@ -49,15 +70,81 @@ const SAVE_INTERVAL: f32 = 30.0;
 impl Plugin for SaveStatePlugin {
   fn build(&self, app: &mut App) {
     app
+      .register_type::<Save>()
+      .init_asset::<SavedEntity>()
+      .init_asset_loader::<SavedEntityLoader>()
       .add_plugins(bevy_replicon::RepliconPlugins)
       .add_event::<LoadFailed>()
       .insert_resource(SaveInterval(self.0))
-      .add_systems(Startup, load_system.in_set(MudStartup::System))
+      .insert_resource(systems::SavedEntityStates::default())
+      .add_systems(Startup, load_system.in_set(MudStartup::World))
+      .add_systems(Update, replicate_parent)
       .add_systems(
         Last,
         final_save_system.run_if(on_event::<AppExit>().and_then(not(on_event::<LoadFailed>()))),
       )
-      .add_systems(Last, save_system.run_if(not(on_event::<AppExit>())));
+      .add_systems(Last, save_system.run_if(not(on_event::<AppExit>())))
+      .add_systems(PreUpdate, systems::asset_events)
+      .debug_lifecycle::<Save>("Save")
+      .debug_lifecycle::<Replicated>("Replicated")
+      .debug_lifecycle::<Handle<SavedEntity>>("Handle<SavedEntity>")
+      .observe(systems::saved_entity_added)
+      .observe(save_added)
+      .replicate::<Save>();
+  }
+}
+
+fn save_added(
+  trigger: Trigger<OnAdd, Save>,
+  query: Query<&Save, Without<Handle<SavedEntity>>>,
+  asset_server: Res<AssetServer>,
+  mut cmd: Commands,
+) {
+  let entity = trigger.entity();
+  let Ok(data) = query.get(entity) else {
+    return;
+  };
+
+  let handle = asset_server.load::<SavedEntity>(data);
+
+  cmd.entity(entity).insert(handle);
+}
+
+fn parent_replicated(
+  trigger: Trigger<OnAdd, Parent>,
+  query: Query<(), With<Replicated>>,
+  mut cmd: Commands,
+) {
+  if query.get(trigger.entity()).is_ok() {
+    cmd.entity(trigger.entity()).insert(ParentSync::default());
+  }
+}
+
+fn replicated_parent(
+  trigger: Trigger<OnAdd, Replicated>,
+  query: Query<(), With<Parent>>,
+  mut cmd: Commands,
+) {
+  if query.get(trigger.entity()).is_ok() {
+    cmd.entity(trigger.entity()).insert(ParentSync::default());
+  }
+}
+
+fn replicate_parent(
+  query: Query<
+    Entity,
+    (
+      Or<(
+        (Added<Parent>, With<Replicated>),
+        (Added<Replicated>, With<Parent>),
+      )>,
+      Without<ParentSync>,
+    ),
+  >,
+  mut cmd: Commands,
+) {
+  for ent in query.iter() {
+    cmd.entity(ent).insert(ParentSync::default());
   }
 }
 
@@ -80,6 +167,9 @@ fn load_system(world: &mut World) {
     }
     let mut entities = EntityHashMap::default();
 
+    let static_scene = Scene::from_dynamic_scene(&scene, &registry).unwrap();
+    let dynamic_scene = DynamicScene::from_scene(&static_scene);
+
     scene.write_to_world(world, &mut entities)?;
     world.resource_scope::<UserDb, ()>(|world, mut db| {
       SceneEntityMapper::world_scope(&mut entities, world, |_, mapper| {
@@ -99,7 +189,7 @@ fn load_system(world: &mut World) {
 
 fn final_save_system(world: &World) {
   let registry = world.resource::<AppTypeRegistry>().clone();
-  let mut scene = DynamicSceneBuilder::from_world(&world)
+  let mut scene = DynamicSceneBuilder::from_world(world)
     .deny_all()
     .deny_all_resources()
     .allow_resource::<UserDb>()
@@ -137,7 +227,7 @@ fn save_system(
     info!("saving world");
     stop.reset();
     let registry = world.resource::<AppTypeRegistry>().clone();
-    let mut scene = DynamicSceneBuilder::from_world(&world)
+    let mut scene = DynamicSceneBuilder::from_world(world)
       .deny_all()
       .deny_all_resources()
       .allow_resource::<UserDb>()

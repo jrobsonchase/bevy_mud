@@ -53,7 +53,7 @@ fn start_handler(mut cmd: Commands) {
   cmd.insert_resource(SignalFlag(flag));
 }
 
-fn check_flag(flag: Res<SignalFlag>, mut signal_writer: EventWriter<Signal>) {
+fn check_flag(mut cmd: Commands, flag: Res<SignalFlag>) {
   let signal = match flag.get() {
     Some(consts::SIGINT) => Signal::SIGINT,
     Some(consts::SIGTERM) => Signal::SIGTERM,
@@ -62,7 +62,7 @@ fn check_flag(flag: Res<SignalFlag>, mut signal_writer: EventWriter<Signal>) {
     Some(consts::SIGUSR2) => Signal::SIGUSR2,
     _ => return,
   };
-  signal_writer.send(signal);
+  cmd.trigger(signal);
 }
 
 pub struct SignalPlugin;

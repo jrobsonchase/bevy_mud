@@ -13,10 +13,7 @@ use bevy::{
     system::SystemParam,
   },
   prelude::*,
-  utils::{
-    hashbrown::HashSet,
-    HashMap,
-  },
+  utils::HashMap,
 };
 use bevy_replicon::core::replication_rules::AppRuleExt;
 use hexx::{
@@ -51,12 +48,16 @@ use crate::{
   core::{
     Live,
     LiveQuery,
+    MudStartup,
   },
   net::{
     TelnetOut,
     GMCP,
   },
-  util::debug_event,
+  util::{
+    debug_trigger,
+    DebugLifecycle,
+  },
 };
 
 const MAP_RADIUS: u32 = 9;
@@ -129,24 +130,38 @@ impl Plugin for MapPlugin {
     app.insert_resource(Maps::default());
 
     app
-      .add_systems(Startup, |world: &mut World| {
-        if !world.contains_resource::<MapConfig>() {
-          world.insert_resource(MapConfig::default());
-        }
-      })
       .add_systems(
-        PostUpdate,
-        (
-          (track_maps_system, add_global),
-          unlive,
-          propagate_transforms,
-          debug_event::<Moved>,
-          moved_to_render_events,
-          debug_event::<RenderRequest>,
-          render_map_system,
-        )
-          .chain(),
-      );
+        Startup,
+        (|world: &mut World| {
+          if !world.contains_resource::<MapConfig>() {
+            world.insert_resource(MapConfig::default());
+          }
+        })
+        .in_set(MudStartup::System),
+      )
+      .add_systems(PostUpdate, propagate_transforms)
+      .debug_lifecycle::<Map>("Map")
+      .observe(debug_trigger::<Moved>)
+      .observe(debug_trigger::<RenderRequest>)
+      .observe(render_map_system)
+      .observe(moved_to_render)
+      .observe(live_added)
+      .observe(live_removed)
+      .observe(map_added)
+      .observe(map_removed);
+
+    app
+      .world_mut()
+      .register_component_hooks::<Transform>()
+      .on_add(|mut world, entity, _| {
+        world
+          .commands()
+          .entity(entity)
+          .insert(GlobalTransform::default());
+      })
+      .on_remove(|mut world, entity, _| {
+        world.commands().entity(entity).remove::<GlobalTransform>();
+      });
   }
 }
 
@@ -390,65 +405,85 @@ impl<'de> Deserialize<'de> for MapWidget {
   }
 }
 
-fn track_maps_system(
+fn map_added(
+  trigger: Trigger<OnAdd, Map>,
   cfg: Res<MapConfig>,
   mut cmd: Commands,
   mut maps: ResMut<Maps>,
-  map_added: Query<(Entity, &Map), Added<Map>>,
-  mut removed: RemovedComponents<Map>,
+  map_query: Query<&Map>,
 ) {
-  for (ent, name) in map_added.iter() {
-    maps.by_name.insert((**name).clone(), ent);
-    maps.by_id.insert(ent, (**name).clone());
-    cmd.entity(ent).insert(Entities::new(*cfg));
-  }
+  let ent = trigger.entity();
+  let Ok(name) = map_query.get(ent) else {
+    warn!(entity = %ent.to_bits(), "map added, but not found");
+    return;
+  };
+  debug!(entity = %ent.to_bits(), name = **name, "map added");
+  maps.by_name.insert((**name).clone(), ent);
+  maps.by_id.insert(ent, (**name).clone());
+  cmd.entity(ent).insert(Entities::new(*cfg));
+}
 
-  for ent in removed.read() {
-    if let Some(name) = maps.by_id.remove(&ent) {
-      maps.by_name.remove(&name);
-    }
+fn map_removed(trigger: Trigger<OnRemove, Map>, mut maps: ResMut<Maps>) {
+  let ent = trigger.entity();
+  if let Some(name) = maps.by_id.remove(&ent) {
+    maps.by_name.remove(&name);
   }
 }
 
-fn add_global(
+fn live_removed(
+  trigger: Trigger<OnRemove, Live>,
   mut cmd: Commands,
-  query: LiveQuery<Entity, (With<Transform>, Without<GlobalTransform>)>,
+  mut map_ents: MapEntitiesMut,
+  query: Query<&GlobalTransform>,
 ) {
-  for entity in query.iter() {
-    cmd.entity(entity).insert(GlobalTransform::default());
-  }
+  let entity = trigger.entity();
+  let Ok(xform) = query.get(entity) else {
+    return;
+  };
+  map_ents.remove_entity(entity, xform);
+  cmd.trigger_targets(
+    Moved {
+      prev: xform.clone().into(),
+      new: None,
+    },
+    entity,
+  );
 }
 
-fn unlive(
+fn live_added(
+  trigger: Trigger<OnAdd, Live>,
+  mut cmd: Commands,
   mut map_ents: MapEntitiesMut,
-  query: Query<(Entity, &GlobalTransform)>,
-  mut removed: RemovedComponents<Live>,
-  mut writer: EventWriter<Moved>,
+  query: Query<&GlobalTransform>,
 ) {
-  for (entity, xform) in removed.read().filter_map(|ent| query.get(ent).ok()) {
-    map_ents.remove_entity(entity, xform);
-    writer.send(Moved {
-      entity,
-      prev: xform.clone(),
-      new: None,
-    });
-  }
+  let entity = trigger.entity();
+  let Ok(xform) = query.get(entity) else {
+    return;
+  };
+  map_ents.add_entity(entity, xform);
+  cmd.trigger_targets(
+    Moved {
+      prev: None,
+      new: xform.clone().into(),
+    },
+    entity,
+  );
 }
 
 fn propagate_transforms(
-  mut writer: EventWriter<Moved>,
+  mut cmd: Commands,
   mut map_ents: MapEntitiesMut,
-  changed: LiveQuery<
-    (Entity, Option<&Parent>),
-    Or<(Added<Transform>, Changed<Transform>, Added<Live>)>,
-  >,
-  mut data_query: LiveQuery<(&Transform, &mut GlobalTransform, Ref<Live>)>,
-  children: LiveQuery<&Children>,
+  changed_query: Query<(Entity, Option<&Parent>), Or<(Added<Transform>, Changed<Transform>)>>,
+  mut data_query: Query<(&Transform, &mut GlobalTransform, Has<Live>)>,
+  children: Query<&Children>,
 ) {
-  for (ent, parent) in changed.iter() {
-    let parent_xform = parent.and_then(|p| data_query.get(**p).map(|(_, g, _)| g.clone()).ok());
+  for (ent, parent) in changed_query.iter() {
+    let parent_xform = parent
+      .and_then(|p| data_query.get(p.get()).ok())
+      .map(|t| t.1)
+      .cloned();
     propagate_transform(
-      &mut writer,
+      &mut cmd,
       &mut map_ents,
       ent,
       parent_xform.as_ref(),
@@ -460,18 +495,17 @@ fn propagate_transforms(
 
 #[derive(Event, Debug)]
 pub struct Moved {
-  pub entity: Entity,
-  pub prev: GlobalTransform,
+  pub prev: Option<GlobalTransform>,
   pub new: Option<GlobalTransform>,
 }
 
 fn propagate_transform(
-  writer: &mut EventWriter<Moved>,
+  cmd: &mut Commands,
   map_ents: &mut MapEntitiesMut,
   entity: Entity,
   parent_xform: Option<&GlobalTransform>,
-  data: &mut LiveQuery<(&Transform, &mut GlobalTransform, Ref<Live>)>,
-  children: &LiveQuery<&Children>,
+  data: &mut Query<(&Transform, &mut GlobalTransform, Has<Live>)>,
+  children: &Query<&Children>,
 ) {
   let my_xform = if let Ok((xform, mut global, live)) = data.get_mut(entity) {
     let xform = if let Some(GlobalTransform(parent)) = parent_xform {
@@ -486,163 +520,161 @@ fn propagate_transform(
 
     let prev = std::mem::replace(&mut *global, GlobalTransform(xform));
 
-    if prev != *global {
-      map_ents.move_entity(entity, &prev, &*global);
-    } else if live.is_added() {
-      map_ents.add_entity(entity, &*global);
-    }
-
-    if prev != *global || live.is_added() {
-      writer.send(Moved {
+    if live && prev != *global {
+      map_ents.move_entity(entity, &prev, &global);
+      cmd.trigger_targets(
+        Moved {
+          prev: prev.into(),
+          new: Some(global.clone()),
+        },
         entity,
-        prev,
-        new: Some(global.clone()),
-      });
+      );
     }
 
     Some(global.clone())
   } else {
-    None
+    parent_xform.cloned()
   };
 
   for child in children.get(entity).iter().flat_map(|c| c.iter()) {
-    propagate_transform(writer, map_ents, *child, my_xform.as_ref(), data, children);
+    propagate_transform(cmd, map_ents, *child, my_xform.as_ref(), data, children);
   }
 }
 
-fn moved_to_render_events(
-  mut sent: Local<EntityHashSet>,
+fn moved_to_render(
+  trigger: Trigger<Moved>,
+  mut cmd: Commands,
+  mut targets: Local<EntityHashSet>,
   map_entities: MapEntities,
-  mut writer: EventWriter<RenderRequest>,
-  mut moved: EventReader<Moved>,
   widgets: LiveQuery<(), With<MapWidget>>,
-  rendered: Query<(), With<Render>>,
+  rendered: LiveQuery<(), With<Render>>,
 ) {
-  sent.clear();
-  for Moved { entity, prev, new } in moved.read() {
-    if widgets.contains(*entity) {
-      writer.send(RenderRequest(*entity));
-      sent.insert(*entity);
-    }
-    if rendered.contains(*entity) {
-      for xform in Some(prev).into_iter().chain(new) {
-        let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
-        for coords in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
-          for other in map.by_coords[0]
-            .get(&coords)
-            .into_iter()
-            .flat_map(|ents| ents.iter())
-          {
-            if sent.contains(other) {
-              continue;
-            }
+  targets.clear();
+  let entity = trigger.entity();
+  let Moved { prev, new } = trigger.event();
+  if widgets.contains(entity) {
+    targets.insert(entity);
+  }
+  if rendered.contains(entity) {
+    for xform in prev.iter().chain(new) {
+      let (_, map) = try_opt!(map_entities.by_name(&xform.map), continue);
+      for coords in xform.coords.spiral_range(0..MAP_RADIUS) {
+        for other in map.by_coords[0]
+          .get(&coords)
+          .into_iter()
+          .flat_map(|ents| ents.iter())
+        {
+          if targets.contains(other) {
+            continue;
+          }
 
-            if widgets.contains(*other) {
-              writer.send(RenderRequest(*other));
-              sent.insert(*other);
-            }
+          if widgets.contains(*other) {
+            targets.insert(*other);
           }
         }
       }
     }
   }
+  cmd.trigger_targets(RenderRequest, targets.drain().collect::<Vec<Entity>>());
 }
 
-#[derive(Event, Debug, Deref)]
-pub struct RenderRequest(pub Entity);
+#[derive(Event, Debug)]
+pub struct RenderRequest;
 
 fn render_map_system(
+  trigger: Trigger<RenderRequest>,
   map_entities: MapEntities,
-  mut puppet_query: LiveQuery<(Entity, &GlobalTransform, &Player, &mut MapWidget)>,
+  mut puppet_query: LiveQuery<(&GlobalTransform, &Player, &mut MapWidget)>,
   player_query: Query<&TelnetOut, With<GMCP>>,
   render_query: LiveQuery<&Render>,
-  mut render_requests: EventReader<RenderRequest>,
 ) {
-  let to_render = render_requests.read().map(|e| e.0).collect::<HashSet<_>>();
+  debug!(entity = trigger.entity().to_bits(), "got render request");
+  let Ok((xform, player, mut widget)) = puppet_query.get_mut(trigger.entity()) else {
+    debug!("couldn't find puppet, returning");
+    return;
+  };
 
-  puppet_query
-    .par_iter_mut()
-    .for_each(|(entity, xform, player, mut widget)| {
-      if !to_render.contains(&entity) {
-        return;
+  let Ok(out) = player_query.get(player.0) else {
+    debug!("player doesn't have gmcp enabled, returning");
+    return;
+  };
+  let Some((_, map)) = map_entities.by_name(&xform.map) else {
+    debug!(map_name = xform.map, "map not found");
+    return;
+  };
+
+  let center = xform.coords + xform.facing.into_hex() * 3;
+
+  widget.clear();
+  widget.center(center);
+  widget.up_direction(xform.facing);
+  for coord in xform.coords.spiral_range(0..MAP_RADIUS) {
+    if !is_visible(xform, coord, MAP_RADIUS) && coord != center {
+      continue;
+    }
+    let tile = widget.tile(coord);
+    for render in map
+      .iter_at(coord, 0)
+      .filter_map(|e| render_query.get(e).ok())
+    {
+      if let Some(bg) = render.background.as_ref() {
+        tile.background().symbol(&bg.text).style(bg.style.into());
       }
-
-      let out = try_opt!(player_query.get(player.0).ok(), return);
-      let (_, map) = try_opt!(map_entities.by_name(&xform.map), return);
-
-      let center = xform.coords + xform.facing.into_hex() * 3;
-
-      widget.clear();
-      widget.center(center);
-      widget.up_direction(xform.facing);
-      for coord in xform.coords.spiral_range(0..(MAP_RADIUS as u32)) {
-        if !is_visible(xform, coord, MAP_RADIUS) && coord != center {
-          continue;
+      if let Some(fg) = render.icon.as_ref() {
+        let mut style: TuiStyle = fg.style.into();
+        if coord == xform.coords {
+          style = style.fg(TuiColor::Blue);
         }
-        let tile = widget.tile(coord);
-        for render in map
-          .iter_at(coord, 0)
-          .filter_map(|e| render_query.get(e).ok())
-        {
-          if let Some(bg) = render.background.as_ref() {
-            tile.background().symbol(&bg.text).style(bg.style.into());
-          }
-          if let Some(fg) = render.icon.as_ref() {
-            let mut style: TuiStyle = fg.style.into();
-            if coord == xform.coords {
-              style = style.fg(TuiColor::Blue);
-            }
-            tile.center().symbol(&fg.text).style(style);
-          }
-        }
+        tile.center().symbol(&fg.text).style(style);
       }
-      for (entity, location) in map.find_within(xform.coords, MAP_RADIUS as u32) {
-        if !is_visible(xform, location.coords, MAP_RADIUS) {
-          continue;
-        }
+    }
+  }
+  for (entity, location) in map.find_within(xform.coords, MAP_RADIUS) {
+    if !is_visible(xform, location.coords, MAP_RADIUS) {
+      continue;
+    }
 
-        let Some(render) = render_query.get(entity).ok() else {
-          continue;
-        };
+    let Some(render) = render_query.get(entity).ok() else {
+      continue;
+    };
 
-        let tile = widget.tile(location.coords);
+    let tile = widget.tile(location.coords);
 
-        if let Some(bg) = render.background.as_ref() {
-          tile.background().symbol(&bg.text).style(bg.style.into());
-        }
-        if let Some(fg) = render.icon.as_ref() {
-          let mut style: TuiStyle = fg.style.into();
-          if location.coords == xform.coords {
-            style = style.fg(TuiColor::Blue);
-          }
-          tile.center().symbol(&fg.text).style(style);
-        }
+    if let Some(bg) = render.background.as_ref() {
+      tile.background().symbol(&bg.text).style(bg.style.into());
+    }
+    if let Some(fg) = render.icon.as_ref() {
+      let mut style: TuiStyle = fg.style.into();
+      if location.coords == xform.coords {
+        style = style.fg(TuiColor::Blue);
       }
-      let mut renderer = Ansi::default();
-      let map_area = Rect {
-        width: 55,
-        height: 23,
-        x: 0,
-        y: 0,
-      };
-      renderer.resize(map_area);
-      widget.render(map_area, &mut renderer);
-      let out = out.clone();
-      bevy::tasks::AsyncComputeTaskPool::get()
-        .spawn(async move {
-          let mut compressor = zstd::Encoder::new(Vec::new(), 0).unwrap();
-          write!(compressor, "{}", renderer).unwrap();
-          let bytes = compressor.finish().unwrap();
-          let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
-          negotiate!(
-            out,
-            sub,
-            GMCP,
-            format!("map {:?}", encoded).as_bytes().into()
-          );
-        })
-        .detach();
-    });
+      tile.center().symbol(&fg.text).style(style);
+    }
+  }
+  let mut renderer = Ansi::default();
+  let map_area = Rect {
+    width: 55,
+    height: 23,
+    x: 0,
+    y: 0,
+  };
+  renderer.resize(map_area);
+  widget.render(map_area, &mut renderer);
+  let out = out.clone();
+  bevy::tasks::AsyncComputeTaskPool::get()
+    .spawn(async move {
+      let mut compressor = zstd::Encoder::new(Vec::new(), 0).unwrap();
+      write!(compressor, "{}", renderer).unwrap();
+      let bytes = compressor.finish().unwrap();
+      let encoded = base64::prelude::BASE64_STANDARD.encode(bytes);
+      negotiate!(
+        out,
+        sub,
+        GMCP,
+        format!("map {:?}", encoded).as_bytes().into()
+      );
+    })
+    .detach();
 }
 
 fn is_visible(xform: &GlobalTransform, coord: Hex, radius: u32) -> bool {

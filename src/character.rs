@@ -61,13 +61,10 @@ impl Plugin for CharacterPlugin {
 
     app.register_type::<Character>();
     app.register_type::<NonPlayer>();
-    app.add_systems(
-      Update,
-      unpuppet_system
-        .before(despawn_system)
-        .run_if(any_component_removed::<Player>().or_else(any_component_removed::<Puppet>())),
-    );
     app.add_systems(Update, despawn_system);
+    app
+      .observe(puppet_removed_unplayer)
+      .observe(player_removed_unpuppet);
   }
 }
 
@@ -86,14 +83,36 @@ pub struct CharacterBundle {
 fn despawn_system(
   mut cmd: Commands,
   query: Query<(Entity, &Character), (Without<Player>, Without<NonPlayer>, With<Live>)>,
-  children: Query<&Children>,
 ) {
   for (ent, _) in query.iter() {
     debug!(?ent, "unloading controllerless character");
-    for child in children.iter_descendants(ent) {
-      cmd.entity(child).remove::<Live>();
-    }
     cmd.entity(ent).remove::<Live>();
+  }
+}
+
+// When Puppet is removed from an entity, find the Player that points to it and detach.
+fn puppet_removed_unplayer(
+  trigger: Trigger<OnRemove, Puppet>,
+  pcs: Query<(Entity, &Player)>,
+  mut cmd: Commands,
+) {
+  let entity = trigger.entity();
+  for pc in pcs.iter().filter(|pc| **pc.1 == entity).map(|p| p.0) {
+    debug!(entity = %pc, "removing player from orphaned puppet");
+    cmd.entity(pc).remove::<Player>();
+  }
+}
+
+// When Player is removed from an entity, find the Puppet that points to it and detach.
+fn player_removed_unpuppet(
+  trigger: Trigger<OnRemove, Player>,
+  pcs: Query<(Entity, &Puppet)>,
+  mut cmd: Commands,
+) {
+  let entity = trigger.entity();
+  for player in pcs.iter().filter(|pc| **pc.1 == entity).map(|p| p.0) {
+    debug!(entity = %player, "removing puppet from detached player");
+    cmd.entity(player).remove::<Puppet>();
   }
 }
 
@@ -108,13 +127,11 @@ fn unpuppet_system(
   let players_removed: HashSet<Entity> = players_removed.read().collect();
   for (ent, player) in pcs.iter() {
     if puppets_removed.contains(&**player) {
-      debug!(?ent, "removing player from orphaned puppet");
       cmd.entity(ent).remove::<Player>();
     }
   }
   for (ent, puppet) in players.iter() {
     if players_removed.contains(&**puppet) {
-      debug!(?ent, "removing puppet from detached player");
       cmd.entity(ent).remove::<Puppet>();
     }
   }

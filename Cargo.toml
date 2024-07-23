@@ -54,10 +54,14 @@ tokio = "1.38.0"
 async-compat = "0.2.4"
 hexx = { version = "0.17.0", features = ["bevy_reflect", "serde"] }
 bevy_replicon = "0.27.0"
+opentelemetry_api = { version = "*", optional = true }
+opentelemetry-otlp = { version = "*", optional = true }
+opentelemetry_sdk = { version = "*", optional = true }
 
 [features]
 tracy_memory = ["tracy", "tracy-client"]
 tracy = ["tracing-tracy"]
+otel = ["opentelemetry_api", "opentelemetry-otlp", "opentelemetry_sdk"]
 default = ["tracy"]
 
 [patch.'https://github.com/jrobsonchase/piccolo']
@@ -66,3 +70,4 @@ piccolo-util = { path = "./piccolo/util" }
 
 [patch.crates-io]
 hexx = { git = "https://github.com/ManevilleF/hexx" }
+

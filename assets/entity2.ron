@@ -1,0 +1,7 @@
+(
+    components: {
+        "bevy_mud::core::Live": (),
+    },
+    entities: {
+    },
+)

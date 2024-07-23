@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::anyhow;
 use bevy::{
+  asset::AssetLoader,
   ecs::world::Command,
   prelude::*,
   reflect::serde::TypedReflectDeserializer,
@@ -21,7 +22,10 @@ use super::{
   CommandArgs,
   WorldCommand,
 };
-use crate::net::TelnetOut;
+use crate::{
+  net::TelnetOut,
+  savestate::entity::SavedEntity,
+};
 
 fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let mut entities = args
@@ -44,14 +48,18 @@ fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
         }
         let scene = DynamicSceneBuilder::from_world(world)
           .allow_all()
+          .deny::<Handle<DynamicScene>>()
+          .deny::<Handle<SavedEntity>>()
           .extract_entities(entities.into_iter())
+          .remove_empty_entities()
           .build();
         let registry = world.resource::<AppTypeRegistry>().read();
         let serializer = EntitiesSerializer {
           entities: &scene.entities,
           registry: &registry,
         };
-        let serialized = serialize_ron(serializer).unwrap();
+        let serialized =
+          serialize_ron(serializer).unwrap_or_else(|_| "<serialization failed>".to_string());
         out.line("Entities:");
         out.line(serialized);
       }
@@ -202,6 +210,67 @@ fn remove(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   }))
 }
 
+fn spawn_scene(args: CommandArgs) -> anyhow::Result<WorldCommand> {
+  let cmd_args = args
+    .args
+    .split(' ')
+    .map(|s| s.trim())
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>();
+
+  let usage = || anyhow!("Usage: @spawn_scene <path>");
+
+  let path = cmd_args.first().ok_or_else(usage)?.to_string();
+
+  let ent = cmd_args
+    .get(1)
+    .and_then(|s| s.parse::<u64>().ok())
+    .map(Entity::from_bits);
+
+  Ok(Box::new(move |world| {
+    let out = world
+      .get::<TelnetOut>(args.caller.unwrap())
+      .unwrap()
+      .clone();
+
+    let loader = world.resource::<AssetServer>();
+    let scene = loader.load::<DynamicScene>(path);
+    if let Some(ent) = ent {
+      world.entity_mut(ent).insert(scene);
+      out.line(format!("inserted scene handle into {ent:?}"));
+      world.commands().entity(ent).log_components();
+    } else {
+      let mut spawner = world.resource_mut::<SceneSpawner>();
+      let id = spawner.spawn_dynamic(scene);
+      out.line(format!("spawned scene with {id:?}"));
+    };
+  }))
+}
+fn spawn_entity(args: CommandArgs) -> anyhow::Result<WorldCommand> {
+  let cmd_args = args
+    .args
+    .split(' ')
+    .map(|s| s.trim())
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>();
+
+  let usage = || anyhow!("Usage: @spawn_entity <path>");
+
+  let path = cmd_args.first().ok_or_else(usage)?.to_string();
+
+  Ok(Box::new(move |world| {
+    let out = world
+      .get::<TelnetOut>(args.caller.unwrap())
+      .unwrap()
+      .clone();
+
+    let loader = world.resource::<AssetServer>();
+    let entity = loader.load::<SavedEntity>(path);
+    let entity = world.spawn(entity).id();
+    world.commands().entity(entity).log_components();
+    out.line(format!("spawned entity with id {}", entity.to_bits()));
+  }))
+}
 fn despawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
   let cmd_args = args
     .args
@@ -299,5 +368,7 @@ command_set! { DebugCommands =>
   ("@spawn", spawn),
   ("@dump", dump_to_file),
   ("@despawn", despawn),
+  ("@spawn_scene", spawn_scene),
+  ("@spawn_entity", spawn_entity),
   ("@parent", parent),
 }
