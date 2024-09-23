@@ -47,7 +47,7 @@ pub fn add_command_sets_system(
 ) {
   for (entity, sess, output) in new_sessions.iter() {
     let mut ecmd = cmd.entity(entity);
-    ecmd.add_game_commands(PlayerCommands);
+    ecmd = ecmd.add_game_commands(PlayerCommands);
     if sess.admin {
       ecmd.add_game_commands(admin_commands());
       output.line("admin commands enabled");
@@ -214,16 +214,16 @@ where
 
 pub trait EntityCommandsExt {
   fn add_game_commands<C: Into<DynamicCommand>>(
-    &mut self,
+    self,
     commands: impl IntoIterator<Item = C> + Send + 'static,
-  ) -> &mut Self;
+  ) -> Self;
 }
 
 impl<'w> EntityCommandsExt for EntityWorldMut<'w> {
   fn add_game_commands<C: Into<DynamicCommand>>(
-    &mut self,
+    mut self,
     commands: impl IntoIterator<Item = C> + Send + 'static,
-  ) -> &mut Self {
+  ) -> Self {
     if let Some(mut set) = self.get_mut::<CommandSet>() {
       set.merge(commands.into_iter().map(Into::into));
     } else {
@@ -235,10 +235,10 @@ impl<'w> EntityCommandsExt for EntityWorldMut<'w> {
 
 impl<'w> EntityCommandsExt for EntityCommands<'w> {
   fn add_game_commands<C: Into<DynamicCommand>>(
-    &mut self,
+    self,
     commands: impl IntoIterator<Item = C> + Send + 'static,
-  ) -> &mut Self {
-    self.add(move |mut entity_world: EntityWorldMut| {
+  ) -> Self {
+    self.queue(move |entity_world: EntityWorldMut| {
       entity_world.add_game_commands(commands);
     })
   }

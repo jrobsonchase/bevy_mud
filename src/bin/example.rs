@@ -61,6 +61,6 @@ fn greeter(mut cmd: Commands, mut query: Query<(Entity, &TelnetOut), Added<Clien
   for (entity, output) in query.iter_mut() {
     output.line("\x1b[1mWelcome!\x1b[0m");
     negotiate!(output, WILL, GMCP);
-    cmd.add(StartLogin(entity));
+    cmd.queue(StartLogin(entity));
   }
 }

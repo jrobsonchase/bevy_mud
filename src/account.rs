@@ -12,7 +12,6 @@ use bevy::{
   prelude::*,
   utils::HashMap,
 };
-use bevy_replicon::core::Replicated;
 use serde::{
   Deserialize,
   Serialize,
@@ -27,6 +26,7 @@ use crate::{
   },
   core::Live,
   net::*,
+  savestate::components::Persistent,
 };
 
 #[derive(Debug, Reflect, Serialize, Deserialize)]
@@ -201,7 +201,7 @@ fn login_system(
         let hashed_password = hash(confirm, 4).unwrap();
         output.line(" done!");
         let character = cmd
-          .spawn((NewCharacterBundle::default(), Replicated, Player(entity)))
+          .spawn((NewCharacterBundle::default(), Persistent, Player(entity)))
           .id();
         cmd.entity(entity).remove::<LoginState>().insert((
           Session {

@@ -15,7 +15,6 @@ use bevy::{
   prelude::*,
   utils::HashMap,
 };
-use bevy_replicon::core::replication_rules::AppRuleExt;
 use hexx::{
   EdgeDirection,
   Hex,
@@ -54,6 +53,7 @@ use crate::{
     TelnetOut,
     GMCP,
   },
+  savestate::traits::AppWorldExt,
   util::{
     debug_trigger,
     DebugLifecycle,
@@ -100,12 +100,12 @@ impl Plugin for MapPlugin {
   fn build(&self, app: &mut App) {
     app.add_event::<RenderRequest>().add_event::<Moved>();
     app
-      .replicate::<Name>()
-      .replicate::<Map>()
-      .replicate::<MapWidget>()
-      .replicate::<Transform>()
-      .replicate::<Render>()
-      .replicate::<Tile>();
+      .persist::<Name>()
+      .persist::<Map>()
+      .persist::<MapWidget>()
+      .persist::<Transform>()
+      .persist::<Render>()
+      .persist::<Tile>();
 
     app
       .register_type::<Name>()

@@ -423,7 +423,7 @@ fn new_conns(mut cmd: Commands, mut query: Query<(Entity, &mut NewConns, Option<
           cmd.entity(*child).remove_parent();
         }
         cmd.entity(listener_id).despawn();
-        cmd.add(run_system(start_listener));
+        cmd.queue(run_system(start_listener));
         continue;
       }
     };

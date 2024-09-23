@@ -1,13 +1,7 @@
 use std::fmt::Debug;
 
 use bevy::{
-  ecs::{
-    component::ComponentId,
-    observer::TriggerTargets,
-    query::QueryData,
-    system::SystemBuffer,
-    world::DeferredWorld,
-  },
+  ecs::query::QueryData,
   prelude::*,
 };
 

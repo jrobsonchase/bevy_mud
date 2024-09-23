@@ -3,13 +3,14 @@ use std::{
   fmt,
 };
 
-use async_std::io::ReadExt;
 use bevy::{
   asset::{
     io::Reader,
     AssetLoader,
+    AssetPath,
     LoadContext,
   },
+  ecs::entity::EntityHashMap,
   prelude::*,
   reflect::{
     TypeInfo,
@@ -31,10 +32,19 @@ use serde::{
   Deserialize,
 };
 
-use super::entity::{
-  Save,
-  SavedEntity,
-};
+use super::components::Save;
+
+#[derive(Asset, Debug, Default, TypePath)]
+pub struct SavedEntity {
+  pub components: Vec<Box<dyn PartialReflect>>,
+  pub entities: EntityHashMap<Vec<Box<dyn PartialReflect>>>,
+}
+
+impl<'a> From<&'a Save> for AssetPath<'static> {
+  fn from(val: &'a Save) -> Self {
+    val.0.clone().into()
+  }
+}
 
 pub struct SavedEntityLoader {
   registry: AppTypeRegistry,
@@ -56,7 +66,7 @@ impl AssetLoader for SavedEntityLoader {
   /// Asynchronously loads [`AssetLoader::Asset`] (and any other labeled assets) from the bytes provided by [`Reader`].
   fn load<'a>(
     &'a self,
-    reader: &'a mut Reader,
+    reader: &'a mut dyn Reader,
     _settings: &'a Self::Settings,
     load_context: &'a mut LoadContext,
   ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
@@ -81,7 +91,7 @@ impl AssetLoader for SavedEntityLoader {
           };
           if TypeInfo::type_id(type_info) == TypeId::of::<Save>() {
             let mut save = Save::default();
-            save.apply(&**child_component);
+            save.apply(child_component.as_partial_reflect());
             child_handle = Some(load_context.load::<SavedEntity>(Clone::clone(&*save)));
           }
         }

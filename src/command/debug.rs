@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
   net::TelnetOut,
-  savestate::entity::SavedEntity,
+  savestate::assets::SavedEntity,
 };
 
 fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
@@ -48,8 +48,8 @@ fn entities(args: CommandArgs) -> anyhow::Result<WorldCommand> {
         }
         let scene = DynamicSceneBuilder::from_world(world)
           .allow_all()
-          .deny::<Handle<DynamicScene>>()
-          .deny::<Handle<SavedEntity>>()
+          .deny_component::<Handle<DynamicScene>>()
+          .deny_component::<Handle<SavedEntity>>()
           .extract_entities(entities.into_iter())
           .remove_empty_entities()
           .build();

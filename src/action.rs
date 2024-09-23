@@ -26,7 +26,7 @@ pub struct StopEvent;
 
 pub trait Action: Debug + Any + Send + Sync + 'static {
   /// Execute the action.
-  fn execute(&self, cmd: &mut EntityCommands);
+  fn execute(&self, cmd: EntityCommands);
 
   /// Whether the action waits for un-busy, or triggers immediately
   fn waits(&self) -> bool {
@@ -60,9 +60,9 @@ fn run_actions(cmd: ParallelCommands, mut query: Query<(Entity, &mut Queue), Wit
         if action.busies() {
           debug!(entity = %ent, "busying");
           busy = true;
-          ec.insert(Busy);
+          ec = ec.insert(Busy);
         }
-        action.execute(&mut ec);
+        action.execute(ec);
       });
 
       q.pop_front();

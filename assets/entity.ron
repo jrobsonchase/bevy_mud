@@ -11,7 +11,7 @@
         ),
         "bevy_mud::map::Render": (
           icon: Some((
-            text: "B",
+            text: "C",
             style: (
               fg: None,
               bg: None,
@@ -36,7 +36,7 @@
     entities: {
         4294967297: (
             components: {
-                "bevy_mud::savestate::entity::Save": ("entity2.ron"),
+                "bevy_mud::savestate::components::Save": ("entity2.ron"),
                 "bevy_hierarchy::components::parent::Parent": (4294967296),
             },
         ),

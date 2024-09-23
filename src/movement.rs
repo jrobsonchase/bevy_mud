@@ -13,7 +13,6 @@ use bevy::{
   ecs::system::EntityCommands,
   prelude::*,
 };
-use bevy_replicon::core::replication_rules::AppRuleExt;
 use hexx::{
   hex,
   EdgeDirection,
@@ -36,6 +35,7 @@ use crate::{
     Transform,
   },
   output::PlayerOutput,
+  savestate::traits::AppWorldExt,
   util::debug_trigger,
 };
 
@@ -45,7 +45,7 @@ impl Plugin for MovementPlugin {
   fn build(&self, app: &mut App) {
     app.add_event::<MoveEvent>();
 
-    app.replicate::<Speed>();
+    app.persist::<Speed>();
     app.register_type::<Speed>();
 
     app.register_type::<MoveDebt>().register_type::<Moving>();
@@ -187,9 +187,9 @@ impl Action for MoveAction {
   fn waits(&self) -> bool {
     true
   }
-  fn execute(&self, cmd: &mut EntityCommands) {
+  fn execute(&self, cmd: EntityCommands) {
     let action = *self;
-    cmd.add(move |mut entity: EntityWorldMut<'_>| {
+    cmd.queue(move |mut entity: EntityWorldMut<'_>| {
       // TODO: check map for movement costs
       let debt_inc = action.debt();
 
@@ -273,8 +273,8 @@ fn movement_system(
       if moved {
         cmd.command_scope(|mut cmd| {
           debug!("completed movement, un-busying");
-          let mut entity = cmd.entity(ent);
-          entity.add(move |mut entity: EntityWorldMut<'_>| {
+          let entity = cmd.entity(ent);
+          entity.queue(move |mut entity: EntityWorldMut<'_>| {
             let moving = entity
               .get::<Queue>()
               .and_then(|q| {

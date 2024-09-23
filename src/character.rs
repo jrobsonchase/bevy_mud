@@ -2,7 +2,6 @@ use bevy::{
   prelude::*,
   utils::HashSet,
 };
-use bevy_replicon::core::replication_rules::AppRuleExt;
 use serde::{
   Deserialize,
   Serialize,
@@ -12,6 +11,7 @@ use crate::{
   action::Queue,
   core::Live,
   movement::Speed,
+  savestate::traits::AppWorldExt,
 };
 
 /// Pointer from a character to the player who controls it.
@@ -56,8 +56,8 @@ impl Plugin for CharacterPlugin {
   fn build(&self, app: &mut App) {
     app.register_type::<Puppet>().register_type::<Player>();
 
-    app.replicate::<Character>();
-    app.replicate::<NonPlayer>();
+    app.persist::<Character>();
+    app.persist::<NonPlayer>();
 
     app.register_type::<Character>();
     app.register_type::<NonPlayer>();

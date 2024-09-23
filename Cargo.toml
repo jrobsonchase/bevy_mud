@@ -9,13 +9,10 @@ version = "0.1.0"
 edition = "2021"
 default-run = "example"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-bevy_piccolo = { path = "./bevy_piccolo" }
 anyhow = "1.0.86"
-bevy_dylib = { version = "0.14", optional = true }
-bevy = { version = "0.14", features = [
+bevy_dylib = { version = "0.15.0-dev", optional = true }
+bevy = { version = "0.15.0-dev", features = [
 	"multi_threaded",
 	"bevy_scene",
 	"bevy_asset",
@@ -52,8 +49,7 @@ ariadne = { version = "0.4.1", default-features = false }
 async-std = "1.12.0"
 tokio = "1.38.0"
 async-compat = "0.2.4"
-hexx = { version = "0.17.0", features = ["bevy_reflect", "serde"] }
-bevy_replicon = "0.27.0"
+hexx = { version = "0.19.0-dev", features = ["bevy_reflect", "serde"] }
 opentelemetry_api = { version = "*", optional = true }
 opentelemetry-otlp = { version = "*", optional = true }
 opentelemetry_sdk = { version = "*", optional = true }
@@ -69,5 +65,8 @@ piccolo = { path = "./piccolo" }
 piccolo-util = { path = "./piccolo/util" }
 
 [patch.crates-io]
-hexx = { git = "https://github.com/ManevilleF/hexx" }
+hexx = { git = "https://github.com/jrobsonchase/hexx", branch = "bevy-main" }
+bevy = { git = "https://github.com/jrobsonchase/bevy", branch = "pre_map_entities" }
+bevy_reflect = { git = "https://github.com/jrobsonchase/bevy", branch = "pre_map_entities" }
+bevy_dylib = { git = "https://github.com/jrobsonchase/bevy", branch = "pre_map_entities" }
 

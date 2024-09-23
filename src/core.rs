@@ -9,14 +9,9 @@ use bevy::{
     ScheduleRunnerPlugin,
   },
   diagnostic::DiagnosticsPlugin,
-  ecs::component::{
-    ComponentHooks,
-    StorageType,
-  },
   prelude::*,
   scene::ScenePlugin,
 };
-use bevy_replicon::core::replication_rules::AppRuleExt;
 use serde::{
   Deserialize,
   Serialize,
@@ -38,16 +33,15 @@ use crate::{
   map::MapPlugin,
   movement::MovementPlugin,
   net::TelnetPlugin,
-  savestate::SaveStatePlugin,
+  savestate::{
+    traits::AppWorldExt,
+    SaveStatePlugin,
+  },
   signal::{
     Signal,
     SignalPlugin,
   },
-  util::{
-    debug_lifecycle,
-    debug_trigger,
-    DebugLifecycle,
-  },
+  util::DebugLifecycle,
 };
 
 /// Marker for entites that are "live" and should be included in update queries.
@@ -179,8 +173,8 @@ impl Plugin for CorePlugin {
       Startup,
       (
         MudStartup::System,
-        MudStartup::Io.run_if(not(on_event::<AppExit>())),
-        MudStartup::World.run_if(not(on_event::<AppExit>())),
+        MudStartup::Io.run_if(not(on_event::<AppExit>)),
+        MudStartup::World.run_if(not(on_event::<AppExit>)),
       )
         .chain(),
     );
@@ -218,7 +212,7 @@ impl Plugin for CorePlugin {
       MovementPlugin,
     ));
 
-    app.replicate::<Live>();
+    app.persist::<Live>();
 
     app
       .debug_lifecycle::<Live>("Live")
