@@ -14,6 +14,8 @@ impl AppWorldExt for World {
     self
       .resource_mut::<super::resources::PersistentComponents>()
       .components
+      .write()
+      .unwrap()
       .insert(TypeId::of::<C>());
     self
   }

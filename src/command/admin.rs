@@ -45,7 +45,7 @@ fn rotate_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .clone();
     let entity_mut = world.get_entity_mut(entity_id);
     let mut entity = try_opt!(entity_mut, {
-      out.line(format!("No such entity: {}", entity_id.to_bits()));
+      out.line(format!("No such entity: {:?}", entity_id));
       return;
     });
     out.line(format!("Rotating {:?} by {}", entity_id, rotation));
@@ -86,7 +86,7 @@ fn move_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .clone();
     let entity_mut = world.get_entity_mut(entity_id);
     let mut entity = try_opt!(entity_mut, {
-      out.line(format!("No such entity: {}", entity_id.to_bits()));
+      out.line(format!("No such entity: {:?}", entity_id));
       return;
     });
     out.line(format!("Moving {:?} by {:?}", entity_id, coords));
@@ -130,7 +130,7 @@ fn teleport_ent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .clone();
     let entity_mut = world.get_entity_mut(entity_id);
     let mut entity = try_opt!(entity_mut, {
-      out.line(format!("No such entity: {}", entity_id.to_bits()));
+      out.line(format!("No such entity: {:?}", entity_id));
       return;
     });
     out.line(format!(

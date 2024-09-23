@@ -7,11 +7,11 @@
                 x: 3,
                 y: 2,
             ),
-            facing: (0),
+            facing: (1),
         ),
         "bevy_mud::map::Render": (
           icon: Some((
-            text: "C",
+            text: "B",
             style: (
               fg: None,
               bg: None,
@@ -40,6 +40,40 @@
                 "bevy_hierarchy::components::parent::Parent": (4294967296),
             },
         ),
+        4294967298: (
+            components: {
+                "bevy_mud::map::Transform": (
+                    map: "default",
+                    coords: (
+                        x: -1,
+                        y: 1,
+                    ),
+                    facing: (0),
+                ),
+                "bevy_mud::map::Render": (
+                  icon: Some((
+                    text: "E",
+                    style: (
+                      fg: None,
+                      bg: None,
+                      add_modifier: (0),
+                      sub_modifier: (0),
+                    ),
+                  )),
+                  background: Some((
+                    text: ".",
+                    style: (
+                      fg: None,
+                      bg: None,
+                      add_modifier: (0),
+                      sub_modifier: (0),
+                    ),
+                  )),
+                ),
+                "bevy_hierarchy::components::parent::Parent": (8589934591),
+                "bevy_mud::core::Live": (),
+            },
+        ),
         4294967296: (
             components: {
                 "bevy_hierarchy::components::children::Children": ([
@@ -48,10 +82,30 @@
                 "bevy_mud::map::Transform": (
                     map: "default",
                     coords: (
-                        x: 6,
-                        y: 9,
+                        x: 1,
+                        y: 1,
                     ),
                     facing: (0),
+                ),
+                "bevy_mud::map::Render": (
+                  icon: Some((
+                    text: "C",
+                    style: (
+                      fg: None,
+                      bg: None,
+                      add_modifier: (0),
+                      sub_modifier: (0),
+                    ),
+                  )),
+                  background: Some((
+                    text: "^",
+                    style: (
+                      fg: None,
+                      bg: None,
+                      add_modifier: (0),
+                      sub_modifier: (0),
+                    ),
+                  )),
                 ),
                 "bevy_hierarchy::components::parent::Parent": (8589934591),
                 "bevy_mud::core::Live": (),

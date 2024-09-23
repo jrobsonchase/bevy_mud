@@ -1,4 +1,10 @@
-use std::any::TypeId;
+use std::{
+  any::TypeId,
+  sync::{
+    Arc,
+    RwLock,
+  },
+};
 
 use bevy::{
   ecs::{
@@ -20,10 +26,9 @@ use super::assets::SavedEntity;
 #[derive(Resource, Copy, Clone, Deref)]
 pub struct SaveInterval(pub f32);
 
-#[derive(Resource, Default, Reflect)]
-#[reflect(Resource)]
+#[derive(Resource, Default, Clone)]
 pub struct PersistentComponents {
-  pub components: HashSet<TypeId>,
+  pub components: Arc<RwLock<HashSet<TypeId>>>,
 }
 
 #[derive(Debug, Resource, Default)]

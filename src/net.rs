@@ -481,7 +481,7 @@ fn gmcp_observer(trigger: Trigger<TelnetEvent>, mut cmd: Commands) {
       debug!(?entity, "not enabling GMCP");
     }
     Event::Negotiation(Cmd::DO, Opt::Known(KnownOpt::GMCP)) => {
-      debug!(entity = ?entity.to_bits(), "enabling GMCP");
+      debug!(?entity, "enabling GMCP");
       cmd.entity(entity).insert(GMCP);
     }
     _ => {}

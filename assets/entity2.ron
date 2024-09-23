@@ -1,6 +1,25 @@
 (
     components: {
         "bevy_mud::core::Live": (),
+        "bevy_mud::map::Render": (
+          icon: Some((
+            text: "d",
+            style: (
+              fg: None,
+              bg: None,
+              add_modifier: (0),
+              sub_modifier: (0),
+            ),
+          )),
+        ),
+        "bevy_mud::map::Transform": (
+            map: "default",
+            coords: (
+                x: 1,
+                y: -1,
+            ),
+            facing: (0),
+        ),
     },
     entities: {
     },

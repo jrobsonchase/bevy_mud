@@ -106,7 +106,7 @@ fn extract_save(world: &World, entities: Query<Entity, With<Persistent>>) -> Dyn
     .deny_all_resources()
     .allow_resource::<UserDb>()
     .with_component_filter(SceneFilter::Allowlist(
-      persistent_components.components.clone(),
+      persistent_components.components.read().unwrap().clone(),
     ))
     .extract_resources()
     .extract_entities(entities.iter())

@@ -414,10 +414,10 @@ fn map_added(
 ) {
   let ent = trigger.entity();
   let Ok(name) = map_query.get(ent) else {
-    warn!(entity = %ent.to_bits(), "map added, but not found");
+    warn!(entity = ?ent, "map added, but not found");
     return;
   };
-  debug!(entity = %ent.to_bits(), name = **name, "map added");
+  debug!(entity = ?ent, name = **name, "map added");
   maps.by_name.insert((**name).clone(), ent);
   maps.by_id.insert(ent, (**name).clone());
   cmd.entity(ent).insert(Entities::new(*cfg));
@@ -588,7 +588,7 @@ fn render_map_system(
   player_query: Query<&TelnetOut, With<GMCP>>,
   render_query: LiveQuery<&Render>,
 ) {
-  debug!(entity = trigger.entity().to_bits(), "got render request");
+  debug!(entity = ?trigger.entity(), "got render request");
   let Ok((xform, player, mut widget)) = puppet_query.get_mut(trigger.entity()) else {
     debug!("couldn't find puppet, returning");
     return;

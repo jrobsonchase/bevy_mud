@@ -28,8 +28,8 @@ pub fn debug_lifecycle<E: Event, C: Bundle>(
   name: &'static str,
 ) -> impl Fn(Trigger<E, C>) {
   move |trigger| {
-    let target = trigger.entity().to_bits();
-    debug!(target, "{} {}", action, name);
+    let target = trigger.entity();
+    debug!(?target, "{} {}", action, name);
   }
 }
 
@@ -39,7 +39,7 @@ pub fn debug_trigger<E: Event + Debug>(trigger: Trigger<E>) {
   if target == Entity::PLACEHOLDER {
     debug!(?event)
   } else {
-    debug!(?event, target = target.to_bits())
+    debug!(?event, ?target)
   }
 }
 

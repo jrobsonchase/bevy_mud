@@ -35,10 +35,10 @@
         "bevy_mud::map::Transform": (
           map: "default",
           coords: (
-            x: 6,
-            y: -3,
+            x: -2,
+            y: 3,
           ),
-          facing: (2),
+          facing: (0),
         ),
         "bevy_mud::movement::Speed": (
           movement: 3.0,

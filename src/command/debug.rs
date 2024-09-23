@@ -96,7 +96,7 @@ fn parent(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .unwrap()
       .clone();
     let mut entity = try_opt!(world.get_entity_mut(ent), {
-      out.line(format!("No such entity: {}", ent.to_bits()));
+      out.line(format!("No such entity: {:?}", ent));
       return;
     });
     if let Some(parent) = parent {
@@ -136,7 +136,7 @@ fn insert(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .clone();
     let reg = registry.read();
     try_opt!(world.get_entity(ent), {
-      out.line(format!("No such entity: {}", ent.to_bits()));
+      out.line(format!("No such entity: {:?}", ent));
       return;
     });
 
@@ -194,7 +194,7 @@ fn remove(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     let reg = registry.read();
     let entity_mut = world.get_entity_mut(entity);
     let mut entity = try_opt!(entity_mut, {
-      out.line(format!("No such entity: {}", entity.to_bits()));
+      out.line(format!("No such entity: {:?}", entity));
       return;
     });
     let res = reg
@@ -268,7 +268,7 @@ fn spawn_entity(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     let entity = loader.load::<SavedEntity>(path);
     let entity = world.spawn(entity).id();
     world.commands().entity(entity).log_components();
-    out.line(format!("spawned entity with id {}", entity.to_bits()));
+    out.line(format!("spawned entity with id {}", entity));
   }))
 }
 fn despawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
@@ -297,9 +297,9 @@ fn despawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
     }
     if world.get_entity(ent).is_some() {
       DespawnRecursive { entity: ent }.apply(world);
-      writeln!(&out, "Despawned entity: {}", ent.to_bits()).unwrap();
+      writeln!(&out, "Despawned entity: {:?}", ent).unwrap();
     } else {
-      writeln!(&out, "No such entity: {}", ent.to_bits()).unwrap();
+      writeln!(&out, "No such entity: {:?}", ent).unwrap();
     }
   }))
 }
@@ -310,7 +310,7 @@ fn spawn(args: CommandArgs) -> anyhow::Result<WorldCommand> {
       .unwrap()
       .clone();
     let id = world.spawn_empty().id();
-    writeln!(&out, "Spawned new entity: {}", id.to_bits()).unwrap();
+    writeln!(&out, "Spawned new entity: {:?}", id).unwrap();
   }))
 }
 

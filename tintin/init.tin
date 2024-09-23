@@ -89,3 +89,11 @@
 #macro {\ei} {.move northeast}
 #macro {\en} {.move southwest}
 #macro {\em} {.move southeast}
+
+#alias .test {
+	#line oneshot #action {^Spawned new entity: %%1} {
+		#show spawned %%1;
+		#send @ins %%1 bevy_mud::savestate::components::Save ("entity.ron");
+	};
+	#send @spawn
+}

@@ -68,11 +68,7 @@ fn live_removed(
     .flatten()
     .collect::<Vec<Entity>>();
   for child in children {
-    debug!(
-      entity = entity.to_bits(),
-      child = child.to_bits(),
-      "propagating un-liveness to child"
-    );
+    debug!(?entity, ?child, "propagating un-liveness to child");
     cmd.entity(child).remove::<Live>();
   }
 
@@ -83,8 +79,8 @@ fn live_removed(
     .is_ok()
   {
     warn!(
-      entity = entity.to_bits(),
-      parent = parent_query.get(entity).unwrap().get().to_bits(),
+      ?entity,
+      parent = ?parent_query.get(entity).unwrap().get(),
       "removing dead child of live parent"
     );
     cmd.entity(entity).remove_parent();
@@ -100,11 +96,7 @@ fn live_added(trigger: Trigger<OnAdd, Live>, mut cmd: Commands, children_query: 
     .flatten()
     .collect::<Vec<Entity>>();
   for child in children {
-    debug!(
-      entity = entity.to_bits(),
-      child = child.to_bits(),
-      "propagating liveness to child"
-    );
+    debug!(?entity, ?child, "propagating liveness to child");
     cmd.entity(child).insert(Live);
   }
 }
@@ -117,33 +109,18 @@ fn live_parent_inserted(
 ) {
   let child = trigger.entity();
   let Ok(parent) = parent.get(child).map(|p| p.get()) else {
-    warn!(
-      child = child.to_bits(),
-      "inserted parent component not found for child"
-    );
+    warn!(?child, "inserted parent component not found for child");
     return;
   };
   let parent_live = live.get(parent).unwrap_or_else(|_| {
-    warn!(
-      parent = parent.to_bits(),
-      child = child.to_bits(),
-      "parent not found, assuming dead"
-    );
+    warn!(?parent, ?child, "parent not found, assuming dead");
     false
   });
   if parent_live {
-    debug!(
-      child = child.to_bits(),
-      parent = parent.to_bits(),
-      "adding Live due to hierarchy change"
-    );
+    debug!(?child, ?parent, "adding Live due to hierarchy change");
     cmd.entity(child).insert(Live);
   } else {
-    debug!(
-      child = child.to_bits(),
-      parent = parent.to_bits(),
-      "removing Live due to hierarchy change"
-    );
+    debug!(?child, ?parent, "removing Live due to hierarchy change");
     cmd.entity(child).remove::<Live>();
   }
 }

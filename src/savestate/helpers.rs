@@ -1,3 +1,5 @@
+use std::sync::PoisonError;
+
 use bevy::{
   prelude::*,
   scene::DynamicEntity,
@@ -9,7 +11,10 @@ use super::{
   components::Save,
   resources::SavedEntityStates,
 };
-use crate::savestate::components::SavedEntityState;
+use crate::savestate::{
+  components::SavedEntityState,
+  resources::PersistentComponents,
+};
 
 pub fn write_saved_entity(
   entity: Entity,
@@ -68,50 +73,57 @@ pub fn write_saved_entity(
     // Despawn all of the no-longer-referenced entities that aren't Saved
     for entity in current_mappings.values().copied() {
       if world.get::<Save>(entity).is_none() {
-        debug!(
-          entity = entity.to_bits(),
-          "despawning no longer referenced entity"
-        );
+        debug!(?entity, "despawning no longer referenced entity");
         world.despawn(entity);
       }
     }
 
     let registry = world.resource::<AppTypeRegistry>().clone();
+    let persistent = world.resource::<PersistentComponents>().clone();
     let registry_read = registry.read();
+    let persist_read = persistent
+      .components
+      .read()
+      .unwrap_or_else(PoisonError::into_inner);
 
-    // for entity in scene.entities {
-    //   let Some(world_entity) = new_mappings.get(&entity.entity).copied() else {
-    //     continue;
-    //   };
-    //   let entity_ref = world.entity(world_entity);
+    for entity in scene.entities {
+      let Some(world_entity) = new_mappings.get(&entity.entity).copied() else {
+        continue;
+      };
+      let entity_ref = world.entity(world_entity);
 
-    //   let mut world_components = entity_ref.archetype().components().collect::<HashSet<_>>();
-    //   entity
-    //     .components
-    //     .iter()
-    //     .filter_map(|c| {
-    //       let reg = registry_read.get_with_type_path(c.reflect_type_path())?;
-    //       world.components().get_id(reg.type_id())
-    //     })
-    //     .for_each(|id| {
-    //       world_components.remove(&id);
-    //     });
+      let mut remove_components = entity_ref.archetype().components().collect::<HashSet<_>>();
+      entity
+        .components
+        .iter()
+        .filter_map(|c| c.get_represented_type_info())
+        .filter_map(|c| registry_read.get_with_type_path(c.type_path()))
+        .filter_map(|reg| world.components().get_id(reg.type_id()))
+        .for_each(|id| {
+          remove_components.remove(&id);
+        });
 
-    //   let mut world_entity = world.entity_mut(world_entity);
-    //   for component_id in world_components {
-    //     debug!(
-    //       entity = ?world_entity.id(),
-    //       "removing component not in save file"
-    //     );
-    //     world_entity.remove_by_id(component_id);
-    //   }
-    // }
+      remove_components.retain(|c| {
+        let Some(info) = world.components().get_info(*c) else {
+          return false;
+        };
+        let Some(type_id) = info.type_id() else {
+          return false;
+        };
+        persist_read.contains(&type_id)
+      });
+
+      let mut world_entity = world.entity_mut(world_entity);
+      for id in remove_components {
+        world_entity.remove_by_id(id);
+      }
+    }
 
     std::mem::swap(current_mappings, new_mappings);
     std::mem::swap(
       &mut state,
       &mut *world.get_mut::<SavedEntityState>(entity).unwrap(),
     );
-    debug!(entity = entity.to_bits(), "finished writing saved entity");
+    debug!(?entity, "finished writing saved entity");
   }
 }
